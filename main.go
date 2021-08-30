@@ -2,31 +2,43 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
 
+	"github.com/jaanek/jethwallet/trezor"
+	"github.com/jaanek/jethwallet/ui"
+	"github.com/jaanek/jethwallet/wallet"
 	"github.com/spf13/cobra"
 )
 
 var (
-	keystores      []string
-	trezor         bool
-	ledger         bool
+	keystorePaths  []string
+	useTrezor      bool
+	useLedger      bool
 	hdpath         string
 	max            int
+	open           bool
 	defaultHDPaths = []string{
 		"m/44'/60'/%d'/0/0", // aka "ledger live"
-		"m/44'/60'/0'/%d",   // aka "ledger legacy"
+		// "m/44'/60'/0'/%d",   // aka "ledger legacy"
 	}
 )
 
 func init() {
-	rootCmd.PersistentFlags().StringSliceVarP(&keystores, "key-store", "k", []string{}, "An array of key-store paths")
-	rootCmd.PersistentFlags().BoolVarP(&trezor, "trezor", "t", false, "Use trezor wallet")
-	rootCmd.PersistentFlags().BoolVarP(&ledger, "ledger", "l", false, "Use ledger wallet")
+	rootCmd.PersistentFlags().StringSliceVar(&keystorePaths, "keystore", []string{}, "An array of key-store paths")
+	rootCmd.PersistentFlags().BoolVar(&useTrezor, "trezor", false, "Use trezor wallet")
+	rootCmd.PersistentFlags().BoolVar(&useLedger, "ledger", false, "Use ledger wallet")
+	rootCmd.PersistentFlags().BoolVar(&open, "open", false, "Force to open wallet")
 	rootCmd.PersistentFlags().IntVarP(&max, "max", "n", 2, "max hd-paths to derive from")
+	rootCmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
+		if len(keystorePaths) == 0 && !useTrezor && !useLedger {
+			return errors.New("Specify wallet type to connect to: --keystore, --trezor or --ledger")
+		}
+		return nil
+	}
 	rootCmd.AddCommand(listAccountsCmd)
 
 	listAccountsCmd.Flags().StringVar(&hdpath, "hd", "", "hd derivation path")
@@ -42,16 +54,32 @@ var listAccountsCmd = &cobra.Command{
 	Aliases: []string{"ls"},
 	Short:   "List accounts",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		wallets := getWallets(keystores, trezor, ledger)
-		fmt.Printf("Found %d wallets\n", len(wallets))
-		for _, w := range wallets {
-			accs, err := getWalletAccounts(w)
+		screen := ui.NewTerminal()
+		if useTrezor {
+			wallets, err := trezor.Wallets()
 			if err != nil {
 				return err
 			}
-			for _, wa := range accs {
-				fmt.Printf("%s hd-path-%s\n", wa.account.Address.Hex(), wa.path.String())
+			fmt.Printf("Found %d wallets\n", len(wallets))
+			for _, w := range wallets {
+				if hdpath != "" {
+					acc, err := wallet.GetHWWalletAccount(screen, w, hdpath)
+					if err != nil {
+						return err
+					}
+					fmt.Printf("%s %s", acc.Address.Hex(), acc.URL.Path)
+					break
+				}
+				accs, err := wallet.GetHWWalletAccounts(screen, w, defaultHDPaths, max)
+				if err != nil {
+					return err
+				}
+				for _, acc := range accs {
+					fmt.Printf("%s hd-path-%s\n", acc.Address.Hex(), acc.URL.Path)
+				}
 			}
+		} else {
+			return errors.New("Other wallets not supported at the moment!")
 		}
 		return nil
 	},

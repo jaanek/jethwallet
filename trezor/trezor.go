@@ -1,0 +1,299 @@
+package trezor
+
+import (
+	"encoding/binary"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"reflect"
+	"strings"
+
+	"github.com/ethereum/go-ethereum/accounts"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/golang/protobuf/proto"
+	"github.com/jaanek/jethwallet/trezor/trezorproto"
+	"github.com/jaanek/jethwallet/ui"
+	"github.com/jaanek/jethwallet/wallet"
+	"github.com/karalabe/usb"
+)
+
+const (
+	// USB vendor identifier used for device discovery
+	vendorID = 0x1209
+)
+
+var (
+	// USB product identifiers used for device discovery
+	productIDs = [...]uint16{
+		0x0001, // Trezor HID
+		0x53c1, // Trezor WebUSB
+	}
+	// USB usage page identifier used for macOS device discovery
+	usageID uint16 = 0xff00
+	// USB endpoint identifier used for non-macOS device discovery
+	endpointID = 0
+)
+
+const PIN_MATRIX = `
+Use the numeric keypad or lowercase letters to describe number positions.
+The layout is:
+    7 8 9        e r t
+    4 5 6  -or-  d f g
+    1 2 3        c v b
+`
+
+type trezorWallet struct {
+	device   usb.Device // USB device advertising itself as a hardware wallet
+	features *trezorproto.Features
+}
+
+func Wallets() ([]wallet.HWWallet, error) {
+	var infos []usb.DeviceInfo
+	allInfos, err := usb.Enumerate(vendorID, 0)
+	if err != nil {
+		return nil, err
+	}
+	for _, info := range allInfos {
+		for _, id := range productIDs {
+			// Windows and Macos use UsageID matching, Linux uses Interface matching
+			if info.ProductID == id && (info.UsagePage == usageID || info.Interface == endpointID) {
+				infos = append(infos, info)
+				break
+			}
+		}
+	}
+	wallets := make([]wallet.HWWallet, 0, len(infos))
+	for _, info := range infos {
+		device, err := info.Open()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Cannot open trezor device: %v\n", info)
+			continue
+		}
+		// init device
+		wallet := &trezorWallet{
+			device: device,
+		}
+		features, err := wallet.init()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Cannot initialize trezor device: %v\n", err)
+			continue
+		}
+		wallet.features = features
+		fmt.Printf("Initialized trezor device: %s\n", wallet.Label())
+		wallets = append(wallets, wallet)
+	}
+	return wallets, nil
+}
+
+func (w *trezorWallet) init() (*trezorproto.Features, error) {
+	kind, reply, err := w.rawCall(&trezorproto.Initialize{SessionId: nil})
+	if err != nil {
+		return nil, err
+	}
+	if kind != trezorproto.MessageType_MessageType_Features {
+		return nil, fmt.Errorf("trezor: expected reply type %s, got %s", MessageName(trezorproto.MessageType_MessageType_Features), MessageName(kind))
+	}
+	result := new(trezorproto.Features)
+	err = proto.Unmarshal(reply, result)
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (w *trezorWallet) Label() string {
+	if w.features == nil || w.features.Label == nil {
+		return ""
+	}
+	return *w.features.Label
+}
+
+func (w *trezorWallet) Derive(ui ui.Screen, path accounts.DerivationPath) (common.Address, error) {
+	address := new(trezorproto.EthereumAddress)
+	if err := w.Call(ui, &trezorproto.EthereumGetAddress{AddressN: []uint32(path)}, address); err != nil {
+		return common.Address{}, err
+	}
+	if addr := address.GetXOldAddress(); len(addr) > 0 { // Older firmwares use binary fomats
+		return common.BytesToAddress(addr), nil
+	}
+	if addr := address.GetAddress(); len(addr) > 0 { // Newer firmwares use hexadecimal fomats
+		return common.HexToAddress(addr), nil
+	}
+	return common.Address{}, errors.New("missing derived address")
+}
+
+// https://github.com/trezor/trezor-firmware/blob/master/python/src/trezorlib/client.py#L216
+func (w *trezorWallet) Call(ui ui.Screen, req proto.Message, result proto.Message) error {
+	kind, reply, err := w.rawCall(req)
+	if err != nil {
+		return err
+	}
+	for {
+		// fmt.Printf("for loop new call. kind: %s ...\n", MessageName(kind))
+		switch kind {
+		case trezorproto.MessageType_MessageType_PinMatrixRequest:
+			{
+				ui.Print("*** NB! Enter PIN ...")
+				ui.Print(PIN_MATRIX)
+				pin, err := ui.ReadPassword()
+				if err != nil {
+					kind, reply, _ = w.rawCall(&trezorproto.Cancel{})
+					return err
+				}
+				// check if pin is valid
+				pinStr := string(pin)
+				for _, d := range pinStr {
+					if !strings.ContainsRune("123456789", d) || len(pin) < 1 {
+						kind, reply, _ = w.rawCall(&trezorproto.Cancel{})
+						return errors.New("Invalid PIN provided")
+					}
+				}
+				// send pin
+				kind, reply, err = w.rawCall(&trezorproto.PinMatrixAck{Pin: &pinStr})
+				if err != nil {
+					return err
+				}
+				fmt.Printf("Trezor pin success. kind: %s\n", MessageName(kind))
+			}
+		case trezorproto.MessageType_MessageType_PassphraseRequest:
+			{
+				ui.Print("*** NB! Enter Passphrase ...")
+				pass, err := ui.ReadPassword()
+				if err != nil {
+					kind, reply, _ = w.rawCall(&trezorproto.Cancel{})
+					return err
+				}
+				passStr := string(pass)
+				// send it
+				kind, reply, err = w.rawCall(&trezorproto.PassphraseAck{Passphrase: &passStr})
+				if err != nil {
+					return err
+				}
+				fmt.Printf("Trezor pass success. kind: %s\n", MessageName(kind))
+			}
+		case trezorproto.MessageType_MessageType_ButtonRequest:
+			{
+				fmt.Printf("*** NB! Button request on your Trezor screen ...")
+				// Trezor is waiting for user confirmation, ack and wait for the next message
+				kind, reply, err = w.rawCall(&trezorproto.ButtonAck{})
+				if err != nil {
+					return err
+				}
+				fmt.Printf("Trezor button success. kind: %s\n", MessageName(kind))
+			}
+		case trezorproto.MessageType_MessageType_Failure:
+			{
+				// Trezor returned a failure, extract and return the message
+				failure := new(trezorproto.Failure)
+				if err := proto.Unmarshal(reply, failure); err != nil {
+					return err
+				}
+				// fmt.Printf("Trezor failure success. kind: %s\n", MessageName(kind))
+				return errors.New("trezor: " + failure.GetMessage())
+			}
+		default:
+			{
+				resultKind := MessageType(result)
+				if resultKind != kind {
+					return fmt.Errorf("trezor: expected reply type %s, got %s", MessageName(resultKind), MessageName(kind))
+				}
+				return proto.Unmarshal(reply, result)
+			}
+		}
+	}
+}
+
+// Type returns the protocol buffer type number of a specific message. If the
+// message is nil, this method panics!
+func MessageType(msg proto.Message) trezorproto.MessageType {
+	return trezorproto.MessageType(trezorproto.MessageType_value["MessageType_"+reflect.TypeOf(msg).Elem().Name()])
+}
+
+// Name returns the friendly message type name of a specific protocol buffer
+// type number.
+func MessageName(kind trezorproto.MessageType) string {
+	name := trezorproto.MessageType_name[int32(kind)]
+	if len(name) < 12 {
+		return name
+	}
+	return name[12:]
+}
+
+//
+// Shameless copy (with little modifications) from go-ethereum project
+//
+// rawCall performs a data exchange with the Trezor wallet, sending it a
+// message and retrieving the raw response.
+func (w *trezorWallet) rawCall(req proto.Message) (trezorproto.MessageType, []byte, error) {
+	// Construct the original message payload to chunk up
+	data, err := proto.Marshal(req)
+	if err != nil {
+		return 0, nil, err
+	}
+	payload := make([]byte, 8+len(data))
+	copy(payload, []byte{0x23, 0x23})
+	binary.BigEndian.PutUint16(payload[2:], uint16(MessageType(req)))
+	binary.BigEndian.PutUint32(payload[4:], uint32(len(data)))
+	copy(payload[8:], data)
+
+	// Stream all the chunks to the device
+	chunk := make([]byte, 64)
+	chunk[0] = 0x3f // Report ID magic number
+
+	for len(payload) > 0 {
+		// Construct the new message to stream, padding with zeroes if needed
+		if len(payload) > 63 {
+			copy(chunk[1:], payload[:63])
+			payload = payload[63:]
+		} else {
+			copy(chunk[1:], payload)
+			copy(chunk[1+len(payload):], make([]byte, 63-len(payload)))
+			payload = nil
+		}
+		// Send over to the device
+		// fmt.Printf("Data chunk sent to the Trezor: %v\n", hexutil.Bytes(chunk))
+		if _, err := w.device.Write(chunk); err != nil {
+			return 0, nil, err
+		}
+	}
+	// Stream the reply back from the wallet in 64 byte chunks
+	var (
+		kind  uint16
+		reply []byte
+	)
+	for {
+		// Read the next chunk from the Trezor wallet
+		if _, err := io.ReadFull(w.device, chunk); err != nil {
+			return 0, nil, err
+		}
+
+		// Make sure the transport header matches
+		if chunk[0] != 0x3f || (len(reply) == 0 && (chunk[1] != 0x23 || chunk[2] != 0x23)) {
+			return 0, nil, errTrezorReplyInvalidHeader
+		}
+		// If it's the first chunk, retrieve the reply message type and total message length
+		var payload []byte
+
+		if len(reply) == 0 {
+			kind = binary.BigEndian.Uint16(chunk[3:5])
+			reply = make([]byte, 0, int(binary.BigEndian.Uint32(chunk[5:9])))
+			payload = chunk[9:]
+		} else {
+			payload = chunk[1:]
+		}
+		// Append to the reply and stop when filled up
+		if left := cap(reply) - len(reply); left > len(payload) {
+			reply = append(reply, payload...)
+		} else {
+			reply = append(reply, payload[:left]...)
+			break
+		}
+	}
+	return trezorproto.MessageType(kind), reply, nil
+}
+
+// errTrezorReplyInvalidHeader is the error message returned by a Trezor data exchange
+// if the device replies with a mismatching header. This usually means the device
+// is in browser mode.
+var errTrezorReplyInvalidHeader = errors.New("trezor: invalid reply header")
