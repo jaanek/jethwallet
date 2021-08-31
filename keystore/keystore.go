@@ -17,6 +17,7 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/keystore"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/jaanek/jethwallet/ui"
 )
 
@@ -75,26 +76,26 @@ func (ks *KeyStore) Accounts() ([]*accounts.Account, error) {
 	return accounts, nil
 }
 
-// SignTx signs the given transaction with the requested address.
-func (ks *KeyStore) SignTx(addr common.Address, tx *types.Transaction, chainID *big.Int) (*types.Transaction, error) {
-	acc, err := ks.FindOne(addr)
-	if err != nil {
-		return nil, err
-	}
-	ks.ui.Print("*** Enter passphrase (not echoed)...")
-	passphrase, err := ks.ui.ReadPassword(&acc)
-	if err != nil {
-		return nil, err
-	}
-	key, err := ks.getDecryptedKey(acc, string(passphrase))
-	if err != nil {
-		return nil, err
-	}
-	fmt.Printf("Account key found from path: %s\n", acc.URL.Path)
+// SignHash calculates a ECDSA signature for the given hash. The produced
+// signature is in the [R || S || V] format where V is 0 or 1.
+func (ks *KeyStore) SignHash(a accounts.Account, hash []byte) ([]byte, error) {
+	// Look up the key to sign with and abort if it cannot be found
+	ks.mu.RLock()
+	defer ks.mu.RUnlock()
 
+	unlockedKey, found := ks.unlocked[a.Address]
+	if !found {
+		return nil, ErrLocked
+	}
+	// Sign the hash using plain ECDSA operations
+	return crypto.Sign(hash, unlockedKey.PrivateKey)
+}
+
+// SignTx signs the given transaction with the requested address.
+func (ks *KeyStore) SignTx(key *ecdsa.PrivateKey, tx *types.Transaction, chainID *big.Int) (*types.Transaction, error) {
 	// Depending on the presence of the chain ID, sign with 2718 or homestead
 	signer := types.LatestSignerForChainID(chainID)
-	return types.SignTx(tx, signer, key.PrivateKey)
+	return types.SignTx(tx, signer, key)
 }
 
 // NewAccount generates a new key and stores it into the key directory,
@@ -165,7 +166,7 @@ func (ks *KeyStore) FindOne(a common.Address) (accounts.Account, error) {
 	return accs[0], nil
 }
 
-func (ks *KeyStore) getDecryptedKey(acc accounts.Account, auth string) (*Key, error) {
+func (ks *KeyStore) GetDecryptedKey(acc accounts.Account, auth string) (*Key, error) {
 	key, err := ks.storage.GetKey(acc.Address, acc.URL.Path, auth)
 	return key, err
 }

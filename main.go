@@ -8,9 +8,8 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/jaanek/jethwallet/hwwallet"
 	"github.com/jaanek/jethwallet/keystore"
-	"github.com/jaanek/jethwallet/ledger"
-	"github.com/jaanek/jethwallet/trezor"
 	"github.com/jaanek/jethwallet/ui"
 	"github.com/jaanek/jethwallet/wallet"
 	"github.com/spf13/cobra"
@@ -27,6 +26,18 @@ var (
 		"m/44'/60'/%d'/0/0", // aka "ledger live"
 		// "m/44'/60'/0'/%d",   // aka "ledger legacy"
 	}
+
+	// tx params
+	flagNonce     string
+	flagFrom      string
+	flagTo        string
+	flagGasLimit  string
+	flagGasPrice  string
+	flagGasTipCap string
+	flagGasFeeCap string
+	flagValue     string
+	flagChainID   string
+	flagSig       bool
 )
 
 func init() {
@@ -42,9 +53,20 @@ func init() {
 		return nil
 	}
 	listAccountsCmd.Flags().StringVar(&hdpath, "hd", "", "hd derivation path")
+	txCmd.Flags().StringVar(&flagNonce, "nonce", "", "")
+	txCmd.Flags().StringVar(&flagFrom, "from", "", "")
+	txCmd.Flags().StringVar(&flagTo, "to", "", "")
+	txCmd.Flags().StringVar(&flagGasLimit, "gas-limit", "", "")
+	txCmd.Flags().StringVar(&flagGasPrice, "gas-price", "", "")
+	txCmd.Flags().StringVar(&flagGasTipCap, "gas-tip", "", "")
+	txCmd.Flags().StringVar(&flagGasFeeCap, "gas-maxfee", "", "")
+	txCmd.Flags().StringVar(&flagValue, "value", "", "")
+	txCmd.Flags().StringVar(&flagChainID, "chain-id", "", "")
+	txCmd.Flags().BoolVar(&flagSig, "sig", false, "")
 
 	rootCmd.AddCommand(listAccountsCmd)
 	rootCmd.AddCommand(newAccountsCmd)
+	rootCmd.AddCommand(txCmd)
 }
 
 var rootCmd = &cobra.Command{
@@ -57,15 +79,9 @@ var listAccountsCmd = &cobra.Command{
 	Aliases: []string{"ls"},
 	Short:   "List accounts",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		screen := ui.NewTerminal()
+		term := ui.NewTerminal()
 		if useTrezor || useLedger {
-			var wallets []wallet.HWWallet
-			var err error
-			if useTrezor {
-				wallets, err = trezor.Wallets(screen)
-			} else if useLedger {
-				wallets, err = ledger.Wallets(screen)
-			}
+			wallets, err := wallet.GetHWWallets(term, useTrezor, useLedger)
 			if err != nil {
 				return err
 			}
@@ -73,14 +89,14 @@ var listAccountsCmd = &cobra.Command{
 			for _, w := range wallets {
 				fmt.Printf("Wallet status: %s\n", w.Status())
 				if hdpath != "" {
-					acc, err := wallet.GetHWWalletAccount(w, hdpath)
+					acc, err := hwwallet.GetAccount(w, hdpath)
 					if err != nil {
 						return err
 					}
 					fmt.Printf("%s %s", acc.Address.Hex(), acc.URL.Path)
 					break
 				}
-				accs, err := wallet.GetHWWalletAccounts(w, defaultHDPaths, max)
+				accs, err := hwwallet.GetAccounts(w, defaultHDPaths, max)
 				if err != nil {
 					return err
 				}
@@ -89,7 +105,7 @@ var listAccountsCmd = &cobra.Command{
 				}
 			}
 		} else if keystorePath != "" {
-			ks := keystore.NewKeyStore(screen, keystorePath)
+			ks := keystore.NewKeyStore(term, keystorePath)
 			accounts, err := ks.Accounts()
 			if err != nil {
 				return err
@@ -107,13 +123,13 @@ var newAccountsCmd = &cobra.Command{
 	Use:   "new",
 	Short: "Create new account in keystore",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		term := ui.NewTerminal()
 		if keystorePath == "" {
 			return errors.New("Only supports creating new accounts in keystore!")
 		}
+		term := ui.NewTerminal()
 		ks := keystore.NewKeyStore(term, keystorePath)
 		term.Print("*** Enter passphrase (not echoed)...")
-		passphrase, err := term.ReadPassword(nil)
+		passphrase, err := term.ReadPassword()
 		if err != nil {
 			return err
 		}
@@ -124,6 +140,12 @@ var newAccountsCmd = &cobra.Command{
 		fmt.Printf("New account created! Address: %s, path: %v\n", acc.Address, acc.URL.Path)
 		return nil
 	},
+}
+
+var txCmd = &cobra.Command{
+	Use:   "tx",
+	Short: "Sign a transaction",
+	RunE:  signTx,
 }
 
 func main() {

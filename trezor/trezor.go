@@ -12,9 +12,9 @@ import (
 	"github.com/ethereum/go-ethereum/accounts"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/golang/protobuf/proto"
+	"github.com/jaanek/jethwallet/hwwallet"
 	"github.com/jaanek/jethwallet/trezor/trezorproto"
 	"github.com/jaanek/jethwallet/ui"
-	"github.com/jaanek/jethwallet/wallet"
 	"github.com/karalabe/usb"
 )
 
@@ -49,7 +49,7 @@ type trezorWallet struct {
 	features *trezorproto.Features
 }
 
-func Wallets(ui ui.Screen) ([]wallet.HWWallet, error) {
+func Wallets(ui ui.Screen) ([]hwwallet.HWWallet, error) {
 	var infos []usb.DeviceInfo
 	allInfos, err := usb.Enumerate(vendorID, 0)
 	if err != nil {
@@ -64,7 +64,7 @@ func Wallets(ui ui.Screen) ([]wallet.HWWallet, error) {
 			}
 		}
 	}
-	wallets := make([]wallet.HWWallet, 0, len(infos))
+	wallets := make([]hwwallet.HWWallet, 0, len(infos))
 	for _, info := range infos {
 		device, err := info.Open()
 		if err != nil {
@@ -151,7 +151,7 @@ func (w *trezorWallet) Call(req proto.Message, result proto.Message) error {
 			{
 				w.ui.Print("*** NB! Enter PIN (not echoed)...")
 				w.ui.Print(PIN_MATRIX)
-				pin, err := w.ui.ReadPassword(nil)
+				pin, err := w.ui.ReadPassword()
 				if err != nil {
 					kind, reply, _ = w.rawCall(&trezorproto.Cancel{})
 					return err
@@ -174,7 +174,7 @@ func (w *trezorWallet) Call(req proto.Message, result proto.Message) error {
 		case trezorproto.MessageType_MessageType_PassphraseRequest:
 			{
 				w.ui.Print("*** NB! Enter Passphrase ...")
-				pass, err := w.ui.ReadPassword(nil)
+				pass, err := w.ui.ReadPassword()
 				if err != nil {
 					kind, reply, _ = w.rawCall(&trezorproto.Cancel{})
 					return err

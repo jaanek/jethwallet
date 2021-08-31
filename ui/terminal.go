@@ -5,12 +5,11 @@ import (
 	"os"
 	"syscall"
 
-	"github.com/ethereum/go-ethereum/accounts"
 	"golang.org/x/crypto/ssh/terminal"
 )
 
 type Screen interface {
-	ReadPassword(acc *accounts.Account) ([]byte, error)
+	ReadPassword() ([]byte, error)
 	Print(msg string)
 }
 
@@ -20,7 +19,7 @@ func NewTerminal() Screen {
 	return &term{}
 }
 
-func (t *term) ReadPassword(acc *accounts.Account) ([]byte, error) {
+func (t *term) ReadPassword() ([]byte, error) {
 	return terminal.ReadPassword(syscall.Stdin)
 }
 

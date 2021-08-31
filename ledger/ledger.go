@@ -10,8 +10,8 @@ import (
 
 	"github.com/ethereum/go-ethereum/accounts"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/jaanek/jethwallet/hwwallet"
 	"github.com/jaanek/jethwallet/ui"
-	"github.com/jaanek/jethwallet/wallet"
 	"github.com/karalabe/usb"
 )
 
@@ -82,7 +82,7 @@ type ledgerWallet struct {
 	version [3]byte
 }
 
-func Wallets(ui ui.Screen) ([]wallet.HWWallet, error) {
+func Wallets(ui ui.Screen) ([]hwwallet.HWWallet, error) {
 	var infos []usb.DeviceInfo
 	allInfos, err := usb.Enumerate(vendorID, 0)
 	if err != nil {
@@ -97,7 +97,7 @@ func Wallets(ui ui.Screen) ([]wallet.HWWallet, error) {
 			}
 		}
 	}
-	wallets := make([]wallet.HWWallet, 0, len(infos))
+	wallets := make([]hwwallet.HWWallet, 0, len(infos))
 	for _, info := range infos {
 		device, err := info.Open()
 		if err != nil {
