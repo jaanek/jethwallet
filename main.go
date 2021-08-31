@@ -8,6 +8,8 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/jaanek/jethwallet/keystore"
+	"github.com/jaanek/jethwallet/ledger"
 	"github.com/jaanek/jethwallet/trezor"
 	"github.com/jaanek/jethwallet/ui"
 	"github.com/jaanek/jethwallet/wallet"
@@ -15,7 +17,7 @@ import (
 )
 
 var (
-	keystorePaths  []string
+	keystorePath   string
 	useTrezor      bool
 	useLedger      bool
 	hdpath         string
@@ -28,20 +30,21 @@ var (
 )
 
 func init() {
-	rootCmd.PersistentFlags().StringSliceVar(&keystorePaths, "keystore", []string{}, "An array of key-store paths")
+	rootCmd.PersistentFlags().StringVar(&keystorePath, "keystore", "", "An array of key-store paths")
 	rootCmd.PersistentFlags().BoolVar(&useTrezor, "trezor", false, "Use trezor wallet")
 	rootCmd.PersistentFlags().BoolVar(&useLedger, "ledger", false, "Use ledger wallet")
 	rootCmd.PersistentFlags().BoolVar(&open, "open", false, "Force to open wallet")
 	rootCmd.PersistentFlags().IntVarP(&max, "max", "n", 2, "max hd-paths to derive from")
 	rootCmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
-		if len(keystorePaths) == 0 && !useTrezor && !useLedger {
+		if keystorePath == "" && !useTrezor && !useLedger {
 			return errors.New("Specify wallet type to connect to: --keystore, --trezor or --ledger")
 		}
 		return nil
 	}
-	rootCmd.AddCommand(listAccountsCmd)
-
 	listAccountsCmd.Flags().StringVar(&hdpath, "hd", "", "hd derivation path")
+
+	rootCmd.AddCommand(listAccountsCmd)
+	rootCmd.AddCommand(newAccountsCmd)
 }
 
 var rootCmd = &cobra.Command{
@@ -55,22 +58,29 @@ var listAccountsCmd = &cobra.Command{
 	Short:   "List accounts",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		screen := ui.NewTerminal()
-		if useTrezor {
-			wallets, err := trezor.Wallets()
+		if useTrezor || useLedger {
+			var wallets []wallet.HWWallet
+			var err error
+			if useTrezor {
+				wallets, err = trezor.Wallets(screen)
+			} else if useLedger {
+				wallets, err = ledger.Wallets(screen)
+			}
 			if err != nil {
 				return err
 			}
-			fmt.Printf("Found %d wallets\n", len(wallets))
+			fmt.Printf("Found %d wallet(s)\n", len(wallets))
 			for _, w := range wallets {
+				fmt.Printf("Wallet status: %s\n", w.Status())
 				if hdpath != "" {
-					acc, err := wallet.GetHWWalletAccount(screen, w, hdpath)
+					acc, err := wallet.GetHWWalletAccount(w, hdpath)
 					if err != nil {
 						return err
 					}
 					fmt.Printf("%s %s", acc.Address.Hex(), acc.URL.Path)
 					break
 				}
-				accs, err := wallet.GetHWWalletAccounts(screen, w, defaultHDPaths, max)
+				accs, err := wallet.GetHWWalletAccounts(w, defaultHDPaths, max)
 				if err != nil {
 					return err
 				}
@@ -78,9 +88,40 @@ var listAccountsCmd = &cobra.Command{
 					fmt.Printf("%s hd-path-%s\n", acc.Address.Hex(), acc.URL.Path)
 				}
 			}
-		} else {
-			return errors.New("Other wallets not supported at the moment!")
+		} else if keystorePath != "" {
+			ks := keystore.NewKeyStore(screen, keystorePath)
+			accounts, err := ks.Accounts()
+			if err != nil {
+				return err
+			}
+			fmt.Printf("Found %d account(s)\n", len(accounts))
+			for _, acc := range accounts {
+				fmt.Printf("Account address: %s, path: %s\n", acc.Address, acc.URL.Path)
+			}
 		}
+		return nil
+	},
+}
+
+var newAccountsCmd = &cobra.Command{
+	Use:   "new",
+	Short: "Create new account in keystore",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		term := ui.NewTerminal()
+		if keystorePath == "" {
+			return errors.New("Only supports creating new accounts in keystore!")
+		}
+		ks := keystore.NewKeyStore(term, keystorePath)
+		term.Print("*** Enter passphrase (not echoed)...")
+		passphrase, err := term.ReadPassword(nil)
+		if err != nil {
+			return err
+		}
+		acc, err := ks.NewAccount(string(passphrase))
+		if err != nil {
+			return err
+		}
+		fmt.Printf("New account created! Address: %s, path: %v\n", acc.Address, acc.URL.Path)
 		return nil
 	},
 }

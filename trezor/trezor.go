@@ -44,11 +44,12 @@ The layout is:
 `
 
 type trezorWallet struct {
+	ui       ui.Screen
 	device   usb.Device // USB device advertising itself as a hardware wallet
 	features *trezorproto.Features
 }
 
-func Wallets() ([]wallet.HWWallet, error) {
+func Wallets(ui ui.Screen) ([]wallet.HWWallet, error) {
 	var infos []usb.DeviceInfo
 	allInfos, err := usb.Enumerate(vendorID, 0)
 	if err != nil {
@@ -72,59 +73,73 @@ func Wallets() ([]wallet.HWWallet, error) {
 		}
 		// init device
 		wallet := &trezorWallet{
+			ui:     ui,
 			device: device,
 		}
-		features, err := wallet.init()
+		err = wallet.init()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Cannot initialize trezor device: %v\n", err)
 			continue
 		}
-		wallet.features = features
-		fmt.Printf("Initialized trezor device: %s\n", wallet.Label())
 		wallets = append(wallets, wallet)
 	}
 	return wallets, nil
 }
 
-func (w *trezorWallet) init() (*trezorproto.Features, error) {
+// https://github.com/trezor/trezor-firmware/blob/eb34c0850e8bc74852b5f8aca5c3ab78dc863796/python/src/trezorlib/client.py#L263
+func (w *trezorWallet) init() error {
 	kind, reply, err := w.rawCall(&trezorproto.Initialize{SessionId: nil})
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if kind != trezorproto.MessageType_MessageType_Features {
-		return nil, fmt.Errorf("trezor: expected reply type %s, got %s", MessageName(trezorproto.MessageType_MessageType_Features), MessageName(kind))
+		return fmt.Errorf("trezor: expected reply type %s, got %s", MessageName(trezorproto.MessageType_MessageType_Features), MessageName(kind))
 	}
-	result := new(trezorproto.Features)
-	err = proto.Unmarshal(reply, result)
+	features := new(trezorproto.Features)
+	err = proto.Unmarshal(reply, features)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	return result, nil
+	w.features = features
+	fmt.Printf("Initialized trezor device: %s\n", w.Label())
+	return nil
+}
+
+func (w *trezorWallet) Status() string {
+	if w.device == nil || w.features == nil {
+		return "Closed"
+	}
+	return fmt.Sprintf("Trezor v%s '%s' online", w.Version(), w.Label())
+}
+
+func (w *trezorWallet) Version() string {
+	var version = [3]uint32{w.features.GetMajorVersion(), w.features.GetMinorVersion(), w.features.GetPatchVersion()}
+	return fmt.Sprintf("%d.%d.%d", version[0], version[1], version[2])
 }
 
 func (w *trezorWallet) Label() string {
-	if w.features == nil || w.features.Label == nil {
+	if w.features == nil {
 		return ""
 	}
-	return *w.features.Label
+	return w.features.GetLabel()
 }
 
-func (w *trezorWallet) Derive(ui ui.Screen, path accounts.DerivationPath) (common.Address, error) {
+func (w *trezorWallet) Derive(path accounts.DerivationPath) (common.Address, error) {
 	address := new(trezorproto.EthereumAddress)
-	if err := w.Call(ui, &trezorproto.EthereumGetAddress{AddressN: []uint32(path)}, address); err != nil {
+	if err := w.Call(&trezorproto.EthereumGetAddress{AddressN: []uint32(path)}, address); err != nil {
 		return common.Address{}, err
 	}
-	if addr := address.GetXOldAddress(); len(addr) > 0 { // Older firmwares use binary fomats
+	if addr := address.GetXOldAddress(); len(addr) > 0 { // Older firmwares use binary formats
 		return common.BytesToAddress(addr), nil
 	}
-	if addr := address.GetAddress(); len(addr) > 0 { // Newer firmwares use hexadecimal fomats
+	if addr := address.GetAddress(); len(addr) > 0 { // Newer firmwares use hexadecimal formats
 		return common.HexToAddress(addr), nil
 	}
 	return common.Address{}, errors.New("missing derived address")
 }
 
 // https://github.com/trezor/trezor-firmware/blob/master/python/src/trezorlib/client.py#L216
-func (w *trezorWallet) Call(ui ui.Screen, req proto.Message, result proto.Message) error {
+func (w *trezorWallet) Call(req proto.Message, result proto.Message) error {
 	kind, reply, err := w.rawCall(req)
 	if err != nil {
 		return err
@@ -134,9 +149,9 @@ func (w *trezorWallet) Call(ui ui.Screen, req proto.Message, result proto.Messag
 		switch kind {
 		case trezorproto.MessageType_MessageType_PinMatrixRequest:
 			{
-				ui.Print("*** NB! Enter PIN ...")
-				ui.Print(PIN_MATRIX)
-				pin, err := ui.ReadPassword()
+				w.ui.Print("*** NB! Enter PIN (not echoed)...")
+				w.ui.Print(PIN_MATRIX)
+				pin, err := w.ui.ReadPassword(nil)
 				if err != nil {
 					kind, reply, _ = w.rawCall(&trezorproto.Cancel{})
 					return err
@@ -158,8 +173,8 @@ func (w *trezorWallet) Call(ui ui.Screen, req proto.Message, result proto.Messag
 			}
 		case trezorproto.MessageType_MessageType_PassphraseRequest:
 			{
-				ui.Print("*** NB! Enter Passphrase ...")
-				pass, err := ui.ReadPassword()
+				w.ui.Print("*** NB! Enter Passphrase ...")
+				pass, err := w.ui.ReadPassword(nil)
 				if err != nil {
 					kind, reply, _ = w.rawCall(&trezorproto.Cancel{})
 					return err
