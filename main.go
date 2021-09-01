@@ -16,16 +16,12 @@ import (
 )
 
 var (
-	keystorePath   string
-	useTrezor      bool
-	useLedger      bool
-	hdpath         string
-	max            int
-	open           bool
-	defaultHDPaths = []string{
-		"m/44'/60'/%d'/0/0", // aka "ledger live"
-		// "m/44'/60'/0'/%d",   // aka "ledger legacy"
-	}
+	keystorePath string
+	useTrezor    bool
+	useLedger    bool
+	hdpath       string
+	max          int
+	open         bool
 
 	// tx params
 	flagNonce     string
@@ -33,10 +29,11 @@ var (
 	flagTo        string
 	flagGasLimit  string
 	flagGasPrice  string
-	flagGasTipCap string
+	flagGasTip    string
 	flagGasFeeCap string
 	flagValue     string
 	flagChainID   string
+	flagInput     string
 	flagSig       bool
 )
 
@@ -58,10 +55,11 @@ func init() {
 	txCmd.Flags().StringVar(&flagTo, "to", "", "")
 	txCmd.Flags().StringVar(&flagGasLimit, "gas-limit", "", "")
 	txCmd.Flags().StringVar(&flagGasPrice, "gas-price", "", "")
-	txCmd.Flags().StringVar(&flagGasTipCap, "gas-tip", "", "")
+	txCmd.Flags().StringVar(&flagGasTip, "gas-tip", "", "")
 	txCmd.Flags().StringVar(&flagGasFeeCap, "gas-maxfee", "", "")
 	txCmd.Flags().StringVar(&flagValue, "value", "", "")
 	txCmd.Flags().StringVar(&flagChainID, "chain-id", "", "")
+	txCmd.Flags().StringVar(&flagInput, "input", "", "")
 	txCmd.Flags().BoolVar(&flagSig, "sig", false, "")
 
 	rootCmd.AddCommand(listAccountsCmd)
@@ -85,23 +83,23 @@ var listAccountsCmd = &cobra.Command{
 			if err != nil {
 				return err
 			}
-			fmt.Printf("Found %d wallet(s)\n", len(wallets))
+			term.Logf("Found %d wallet(s)\n", len(wallets))
 			for _, w := range wallets {
-				fmt.Printf("Wallet status: %s\n", w.Status())
+				term.Logf("Wallet status: %s\n", w.Status())
 				if hdpath != "" {
-					acc, err := hwwallet.GetAccount(w, hdpath)
+					acc, err := hwwallet.Account(w, hdpath)
 					if err != nil {
 						return err
 					}
-					fmt.Printf("%s %s", acc.Address.Hex(), acc.URL.Path)
+					term.Logf("%s %s", acc.Address.Hex(), acc.URL.Path)
 					break
 				}
-				accs, err := hwwallet.GetAccounts(w, defaultHDPaths, max)
+				accs, err := hwwallet.Accounts(w, hwwallet.DefaultHDPaths, max)
 				if err != nil {
 					return err
 				}
 				for _, acc := range accs {
-					fmt.Printf("%s hd-path-%s\n", acc.Address.Hex(), acc.URL.Path)
+					term.Logf("%s hd-path-%s\n", acc.Address.Hex(), acc.URL.Path)
 				}
 			}
 		} else if keystorePath != "" {
@@ -110,9 +108,9 @@ var listAccountsCmd = &cobra.Command{
 			if err != nil {
 				return err
 			}
-			fmt.Printf("Found %d account(s)\n", len(accounts))
+			term.Logf("Found %d account(s)\n", len(accounts))
 			for _, acc := range accounts {
-				fmt.Printf("Account address: %s, path: %s\n", acc.Address, acc.URL.Path)
+				term.Logf("Account address: %s, path: %s\n", acc.Address, acc.URL.Path)
 			}
 		}
 		return nil
@@ -137,7 +135,7 @@ var newAccountsCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		fmt.Printf("New account created! Address: %s, path: %v\n", acc.Address, acc.URL.Path)
+		term.Logf("New account created! Address: %s, path: %v\n", acc.Address, acc.URL.Path)
 		return nil
 	},
 }
@@ -145,7 +143,14 @@ var newAccountsCmd = &cobra.Command{
 var txCmd = &cobra.Command{
 	Use:   "tx",
 	Short: "Sign a transaction",
-	RunE:  signTx,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		term := ui.NewTerminal()
+		err := signTx(term, cmd, args)
+		if err != nil {
+			term.Error(err)
+		}
+		return nil
+	},
 }
 
 func main() {

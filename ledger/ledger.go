@@ -6,10 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
+	"math/big"
 
 	"github.com/ethereum/go-ethereum/accounts"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/jaanek/jethwallet/hwwallet"
 	"github.com/jaanek/jethwallet/ui"
 	"github.com/karalabe/usb"
@@ -82,7 +85,7 @@ type ledgerWallet struct {
 	version [3]byte
 }
 
-func Wallets(ui ui.Screen) ([]hwwallet.HWWallet, error) {
+func Wallets(term ui.Screen) ([]hwwallet.HWWallet, error) {
 	var infos []usb.DeviceInfo
 	allInfos, err := usb.Enumerate(vendorID, 0)
 	if err != nil {
@@ -101,21 +104,21 @@ func Wallets(ui ui.Screen) ([]hwwallet.HWWallet, error) {
 	for _, info := range infos {
 		device, err := info.Open()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Cannot open ledger device: %v\n", info)
+			term.Errorf("Cannot open ledger device: %v\n", info)
 			continue
 		}
 		// init device
 		wallet := &ledgerWallet{
-			ui:      ui,
+			ui:      term,
 			device:  device,
 			browser: false,
 		}
 		err = wallet.init()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Cannot initialize ledger device: %v\n", err)
+			term.Errorf("Cannot initialize ledger device: %v\n", err)
 			continue
 		}
-		fmt.Printf("Initialized ledger device: %s\n", wallet.Label())
+		term.Logf("Initialized ledger device: %s\n", wallet.Label())
 		wallets = append(wallets, wallet)
 	}
 	return wallets, nil
@@ -126,7 +129,7 @@ func (w *ledgerWallet) init() error {
 	if err != nil {
 		// Ethereum app is not running or in browser mode, nothing more to do, return
 		if err == errLedgerReplyInvalidHeader {
-			fmt.Printf("errLedgerReplyInvalidHeader\n")
+			w.ui.Log("errLedgerReplyInvalidHeader")
 			w.browser = true
 		}
 		return nil
@@ -135,7 +138,7 @@ func (w *ledgerWallet) init() error {
 	if w.version, err = w.ledgerVersion(); err != nil {
 		w.version = [3]byte{1, 0, 0} // Assume worst case, can't verify if v1.0.0 or v1.0.1
 	}
-	fmt.Printf("ledger version: %x\n", w.version)
+	w.ui.Logf("ledger version: %x\n", w.version)
 	return nil
 }
 
@@ -195,11 +198,125 @@ func (w *ledgerWallet) ledgerVersion() ([3]byte, error) {
 	return version, nil
 }
 
+func (w *ledgerWallet) Scheme() string {
+	return "ledger"
+}
+
 func (w *ledgerWallet) Label() string {
 	if w.version == [3]byte{0, 0, 0} {
 		return ""
 	}
 	return fmt.Sprintf("%x", w.version)
+}
+
+// SignTx sends the transaction to the Ledger and
+// waits for the user to confirm or deny the transaction.
+//
+// Note, if the version of the Ethereum application running on the Ledger wallet is
+// too old to sign EIP-155 transactions, but such is requested nonetheless, an error
+// will be returned opposed to silently signing in Homestead mode.
+//
+// ledgerSign sends the transaction to the Ledger wallet, and waits for the user
+// to confirm or deny the transaction.
+//
+// The transaction signing protocol is defined as follows:
+//
+//   CLA | INS | P1 | P2 | Lc  | Le
+//   ----+-----+----+----+-----+---
+//    E0 | 04  | 00: first transaction data block
+//               80: subsequent transaction data block
+//                  | 00 | variable | variable
+//
+// Where the input for the first transaction block (first 255 bytes) is:
+//
+//   Description                                      | Length
+//   -------------------------------------------------+----------
+//   Number of BIP 32 derivations to perform (max 10) | 1 byte
+//   First derivation index (big endian)              | 4 bytes
+//   ...                                              | 4 bytes
+//   Last derivation index (big endian)               | 4 bytes
+//   RLP transaction chunk                            | arbitrary
+//
+// And the input for subsequent transaction blocks (first 255 bytes) are:
+//
+//   Description           | Length
+//   ----------------------+----------
+//   RLP transaction chunk | arbitrary
+//
+// And the output data is:
+//
+//   Description | Length
+//   ------------+---------
+//   signature V | 1 byte
+//   signature R | 32 bytes
+//   signature S | 32 bytes
+func (w *ledgerWallet) SignTx(derivationPath accounts.DerivationPath, tx *types.Transaction, chainID big.Int) (common.Address, *types.Transaction, error) {
+	// If the Ethereum app doesn't run, abort
+	if w.offline() {
+		return common.Address{}, nil, accounts.ErrWalletClosed
+	}
+	// Ensure the wallet is capable of signing the given transaction
+	if w.version[0] <= 1 && w.version[1] <= 0 && w.version[2] <= 2 {
+		//lint:ignore ST1005 brand name displayed on the console
+		return common.Address{}, nil, fmt.Errorf("Ledger v%d.%d.%d doesn't support signing this transaction, please update to v1.0.3 at least", w.version[0], w.version[1], w.version[2])
+	}
+
+	// All infos gathered and metadata checks out, request signing
+	// Flatten the derivation path into the Ledger request
+	path := make([]byte, 1+4*len(derivationPath))
+	path[0] = byte(len(derivationPath))
+	for i, component := range derivationPath {
+		binary.BigEndian.PutUint32(path[1+4*i:], component)
+	}
+	// Create the transaction RLP based on whether legacy or EIP155 signing was requested
+	var (
+		txrlp []byte
+		err   error
+	)
+	if txrlp, err = rlp.EncodeToBytes([]interface{}{tx.Nonce(), tx.GasPrice(), tx.Gas(), tx.To(), tx.Value(), tx.Data(), chainID, big.NewInt(0), big.NewInt(0)}); err != nil {
+		return common.Address{}, nil, err
+	}
+	payload := append(path, txrlp...)
+
+	// Send the request and wait for the response
+	var (
+		op    = ledgerP1InitTransactionData
+		reply []byte
+	)
+	for len(payload) > 0 {
+		// Calculate the size of the next data chunk
+		chunk := 255
+		if chunk > len(payload) {
+			chunk = len(payload)
+		}
+		// Send the chunk over, ensuring it's processed correctly
+		reply, err = w.rawCall(ledgerOpSignTransaction, op, 0, payload[:chunk])
+		if err != nil {
+			return common.Address{}, nil, err
+		}
+		// Shift the payload and ensure subsequent chunks are marked as such
+		payload = payload[chunk:]
+		op = ledgerP1ContTransactionData
+	}
+	// Extract the Ethereum signature and do a sanity validation
+	if len(reply) != crypto.SignatureLength {
+		return common.Address{}, nil, errors.New("reply lacks signature")
+	}
+	signature := append(reply[1:], reply[0])
+
+	// Create the correct signer and signature transform based on the chain ID
+	signer := types.NewLondonSigner(&chainID)
+	signature[64] -= byte(chainID.Uint64()*2 + 35)
+
+	signed, err := tx.WithSignature(signer, signature)
+	if err != nil {
+		return common.Address{}, nil, err
+	}
+	sender, err := types.Sender(signer, signed)
+	if err != nil {
+		return common.Address{}, nil, err
+	}
+	return sender, signed, nil
 }
 
 // Derive retrieves the currently active Ethereum address from a Ledger

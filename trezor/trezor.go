@@ -5,12 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
+	"math/big"
 	"reflect"
 	"strings"
 
 	"github.com/ethereum/go-ethereum/accounts"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/golang/protobuf/proto"
 	"github.com/jaanek/jethwallet/hwwallet"
 	"github.com/jaanek/jethwallet/trezor/trezorproto"
@@ -49,7 +50,7 @@ type trezorWallet struct {
 	features *trezorproto.Features
 }
 
-func Wallets(ui ui.Screen) ([]hwwallet.HWWallet, error) {
+func Wallets(term ui.Screen) ([]hwwallet.HWWallet, error) {
 	var infos []usb.DeviceInfo
 	allInfos, err := usb.Enumerate(vendorID, 0)
 	if err != nil {
@@ -68,17 +69,17 @@ func Wallets(ui ui.Screen) ([]hwwallet.HWWallet, error) {
 	for _, info := range infos {
 		device, err := info.Open()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Cannot open trezor device: %v\n", info)
+			term.Errorf("Cannot open trezor device: %v\n", info)
 			continue
 		}
 		// init device
 		wallet := &trezorWallet{
-			ui:     ui,
+			ui:     term,
 			device: device,
 		}
 		err = wallet.init()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Cannot initialize trezor device: %v\n", err)
+			term.Errorf("Cannot initialize trezor device: %v\n", err)
 			continue
 		}
 		wallets = append(wallets, wallet)
@@ -101,8 +102,12 @@ func (w *trezorWallet) init() error {
 		return err
 	}
 	w.features = features
-	fmt.Printf("Initialized trezor device: %s\n", w.Label())
+	w.ui.Logf("Initialized trezor device: %s\n", w.Label())
 	return nil
+}
+
+func (w *trezorWallet) Scheme() string {
+	return "trezor"
 }
 
 func (w *trezorWallet) Status() string {
@@ -122,6 +127,104 @@ func (w *trezorWallet) Label() string {
 		return ""
 	}
 	return w.features.GetLabel()
+}
+
+const ChunkedMax = 1024
+
+// SignTx sends the transaction to the Trezor and
+// waits for the user to confirm or deny the transaction.
+func (w *trezorWallet) SignTx(path accounts.DerivationPath, tx *types.Transaction, chainID big.Int) (common.Address, *types.Transaction, error) {
+	if w.device == nil {
+		return common.Address{}, nil, accounts.ErrWalletClosed
+	}
+	chainId := uint32(chainID.Int64()) // EIP-155 transaction, set chain ID explicitly (only 32 bit is supported!?)
+	var toAddr *string
+	if to := tx.To(); to != nil {
+		// Non contract deploy, set recipient explicitly
+		hex := to.Hex()
+		toAddr = &hex
+	}
+
+	// data chunk setup
+	data := tx.Data()
+	length := uint32(len(data))
+	var dataInitialChunk []byte
+	if length > ChunkedMax { // Send the data chunked if that was requested
+		dataInitialChunk, data = data[:1024], data[1024:]
+	} else {
+		dataInitialChunk, data = data, nil
+	}
+
+	// build trezor tx
+	var req proto.Message
+	switch tx.Type() {
+	case types.LegacyTxType, types.AccessListTxType:
+		var request = &trezorproto.EthereumSignTx{
+			AddressN:         []uint32(path),
+			To:               toAddr,
+			Nonce:            new(big.Int).SetUint64(tx.Nonce()).Bytes(),
+			GasPrice:         tx.GasPrice().Bytes(),
+			GasLimit:         new(big.Int).SetUint64(tx.Gas()).Bytes(),
+			Value:            tx.Value().Bytes(),
+			DataInitialChunk: dataInitialChunk,
+			DataLength:       &length,
+			ChainId:          &chainId,
+		}
+		req = request
+	case types.DynamicFeeTxType:
+		var request = &trezorproto.EthereumSignTxEIP1559{
+			AddressN:         []uint32(path),
+			To:               toAddr,
+			Nonce:            new(big.Int).SetUint64(tx.Nonce()).Bytes(),
+			MaxGasFee:        tx.GasFeeCap().Bytes(),
+			MaxPriorityFee:   tx.GasTipCap().Bytes(),
+			GasLimit:         new(big.Int).SetUint64(tx.Gas()).Bytes(),
+			Value:            tx.Value().Bytes(),
+			DataInitialChunk: dataInitialChunk,
+			DataLength:       &length,
+			ChainId:          &chainId,
+		}
+		req = request
+	default:
+		return common.Address{}, nil, fmt.Errorf("unsupported tx type %d", tx.Type())
+	}
+	// Send the initiation message and stream content until a signature is returned
+	return w.sendTx(req, tx, chainID, data)
+}
+
+func (w *trezorWallet) sendTx(req proto.Message, tx *types.Transaction, chainID big.Int, data []byte) (common.Address, *types.Transaction, error) {
+	response := new(trezorproto.EthereumTxRequest)
+	if err := w.Call(req, response); err != nil {
+		return common.Address{}, nil, err
+	}
+	for response.DataLength != nil && int(*response.DataLength) <= len(data) {
+		chunk := data[:*response.DataLength]
+		data = data[*response.DataLength:]
+
+		if err := w.Call(&trezorproto.EthereumTxAck{DataChunk: chunk}, response); err != nil {
+			return common.Address{}, nil, err
+		}
+	}
+	// Extract the Ethereum signature and do a sanity validation
+	if len(response.GetSignatureR()) == 0 || len(response.GetSignatureS()) == 0 || response.GetSignatureV() == 0 {
+		return common.Address{}, nil, errors.New("reply lacks signature")
+	}
+	signature := append(append(response.GetSignatureR(), response.GetSignatureS()...), byte(response.GetSignatureV()))
+
+	// Create the correct signer and signature transform based on the chain ID
+	signer := types.NewLondonSigner(&chainID)
+	signature[64] -= byte(chainID.Uint64()*2 + 35)
+
+	// Inject the final signature into the transaction and sanity check the sender
+	signed, err := tx.WithSignature(signer, signature)
+	if err != nil {
+		return common.Address{}, nil, err
+	}
+	sender, err := types.Sender(signer, signed)
+	if err != nil {
+		return common.Address{}, nil, err
+	}
+	return sender, signed, nil
 }
 
 func (w *trezorWallet) Derive(path accounts.DerivationPath) (common.Address, error) {
@@ -169,7 +272,7 @@ func (w *trezorWallet) Call(req proto.Message, result proto.Message) error {
 				if err != nil {
 					return err
 				}
-				fmt.Printf("Trezor pin success. kind: %s\n", MessageName(kind))
+				w.ui.Logf("Trezor pin success. kind: %s\n", MessageName(kind))
 			}
 		case trezorproto.MessageType_MessageType_PassphraseRequest:
 			{
@@ -185,17 +288,17 @@ func (w *trezorWallet) Call(req proto.Message, result proto.Message) error {
 				if err != nil {
 					return err
 				}
-				fmt.Printf("Trezor pass success. kind: %s\n", MessageName(kind))
+				w.ui.Logf("Trezor pass success. kind: %s\n", MessageName(kind))
 			}
 		case trezorproto.MessageType_MessageType_ButtonRequest:
 			{
-				fmt.Printf("*** NB! Button request on your Trezor screen ...")
+				w.ui.Print("*** NB! Button request on your Trezor screen ...")
 				// Trezor is waiting for user confirmation, ack and wait for the next message
 				kind, reply, err = w.rawCall(&trezorproto.ButtonAck{})
 				if err != nil {
 					return err
 				}
-				fmt.Printf("Trezor button success. kind: %s\n", MessageName(kind))
+				w.ui.Logf("Trezor button success. kind: %s\n", MessageName(kind))
 			}
 		case trezorproto.MessageType_MessageType_Failure:
 			{

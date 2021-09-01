@@ -5,17 +5,20 @@ import (
 	"fmt"
 	"math/big"
 
+	"github.com/ethereum/go-ethereum/accounts"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/common/math"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/rlp"
+	"github.com/jaanek/jethwallet/hwwallet"
 	"github.com/jaanek/jethwallet/keystore"
 	"github.com/jaanek/jethwallet/ui"
+	"github.com/jaanek/jethwallet/wallet"
 	"github.com/spf13/cobra"
 )
 
-func signTx(cmd *cobra.Command, args []string) error {
+func signTx(term ui.Screen, cmd *cobra.Command, args []string) error {
 	// validate flags
 	if flagNonce == "" {
 		return errors.New("Missing --nonce")
@@ -38,8 +41,8 @@ func signTx(cmd *cobra.Command, args []string) error {
 	if flagGasPrice != "" {
 		gasPrice = math.MustParseBig256(flagGasPrice)
 	}
-	if flagGasTipCap != "" {
-		gasTipCap = math.MustParseBig256(flagGasTipCap)
+	if flagGasTip != "" {
+		gasTipCap = math.MustParseBig256(flagGasTip)
 	}
 	if flagGasFeeCap != "" {
 		gasFeeCap = math.MustParseBig256(flagGasFeeCap)
@@ -47,9 +50,6 @@ func signTx(cmd *cobra.Command, args []string) error {
 	if gasPrice == nil && (gasTipCap == nil || gasFeeCap == nil) {
 		return errors.New("Either --gas-price or (--gas-tip and --gas-maxfee) must be provided")
 	}
-	// if gasTipCap != nil && gasFeeCap == nil {
-	// 	gasFeeCap = new(big.Int).Add(gasTipCap, new(big.Int).Mul(head.BaseFee, big.NewInt(2)))
-	// }
 	var value *big.Int
 	if flagValue != "" {
 		value = math.MustParseBig256(flagValue)
@@ -60,6 +60,13 @@ func signTx(cmd *cobra.Command, args []string) error {
 		return errors.New("Missing --chain-id")
 	}
 	chainID := math.MustParseBig256(flagChainID)
+	if to == nil && flagInput == "" {
+		return errors.New("Either --to or --input must be provided")
+	}
+	var input = []byte{}
+	if flagInput != "" {
+		input = hexutil.MustDecode(flagInput)
+	}
 
 	// Create the transaction to sign
 	var rawTx *types.Transaction
@@ -69,7 +76,7 @@ func signTx(cmd *cobra.Command, args []string) error {
 			GasPrice: gasPrice,
 			Gas:      gasLimit,
 			Value:    value,
-			// Data:     input,
+			Data:     input,
 		}
 		if to != nil {
 			baseTx.To = to
@@ -83,7 +90,7 @@ func signTx(cmd *cobra.Command, args []string) error {
 			GasFeeCap: gasFeeCap,
 			Gas:       gasLimit,
 			Value:     value,
-			// Data:      input,
+			Data:      input,
 		}
 		if to != nil {
 			baseTx.To = to
@@ -92,12 +99,42 @@ func signTx(cmd *cobra.Command, args []string) error {
 	}
 
 	// sign tx
-	term := ui.NewTerminal()
+	var (
+		signed *types.Transaction
+	)
 	if useTrezor || useLedger {
-		// wallets, err := wallet.GetHWWallets(term, useTrezor, useLedger)
-		// if err != nil {
-		// 	return err
-		// }
+		wallets, err := wallet.GetHWWallets(term, useTrezor, useLedger)
+		if err != nil {
+			return err
+		}
+		var acc accounts.Account
+		var hww hwwallet.HWWallet
+		for _, w := range wallets {
+			acc, err = hwwallet.FindOne(w, fromAddr, hwwallet.DefaultHDPaths, max)
+			if err != nil {
+				// log out that we did not found from wallet or there was multiple
+				term.Print(err.Error())
+				continue
+			}
+			hww = w
+			break
+		}
+		if acc == (accounts.Account{}) {
+			return errors.New(fmt.Sprintf("No accounts found for address: %s\n", fromAddr))
+		}
+		term.Print(fmt.Sprintf("Found account: %v, path: %s ...", acc.Address, acc.URL.Path))
+		path, err := accounts.ParseDerivationPath(acc.URL.Path)
+		if err != nil {
+			return err
+		}
+		var addr common.Address
+		addr, signed, err = hww.SignTx(path, rawTx, *chainID)
+		if err != nil {
+			return err
+		}
+		if addr != acc.Address {
+			return errors.New("Signed tx sender address != provided derivation path address!")
+		}
 	} else if keystorePath != "" {
 		ks := keystore.NewKeyStore(term, keystorePath)
 
@@ -106,7 +143,7 @@ func signTx(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return err
 		}
-		term.Print(fmt.Sprintf("*** Enter account: %v passphrase (not echoed) ...", acc.Address))
+		term.Print(fmt.Sprintf("*** Enter passphrase (not echoed) account: %v ...", acc.Address))
 		passphrase, err := term.ReadPassword()
 		if err != nil {
 			return err
@@ -115,17 +152,17 @@ func signTx(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return err
 		}
-		signed, err := ks.SignTx(key.PrivateKey, rawTx, chainID)
+		signed, err = ks.SignTx(key.PrivateKey, rawTx, chainID)
 		if err != nil {
 			return err
 		}
-		if flagSig {
-			v, r, s := signed.RawSignatureValues()
-			fmt.Println(fmt.Sprintf("0x%064x%064x%02x", r, s, v))
-		} else {
-			encoded, _ := rlp.EncodeToBytes(signed)
-			fmt.Println(hexutil.Encode(encoded[:]))
-		}
+	}
+	if flagSig {
+		v, r, s := signed.RawSignatureValues()
+		term.Output(fmt.Sprintf("0x%064x%064x%02x", r, s, v))
+	} else {
+		encoded, _ := rlp.EncodeToBytes(signed)
+		term.Output(hexutil.Encode(encoded[:]))
 	}
 	return nil
 }

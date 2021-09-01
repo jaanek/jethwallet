@@ -63,12 +63,12 @@ func (ks *KeyStore) Accounts() ([]*accounts.Account, error) {
 		path := ks.storage.JoinPath(fi.Name())
 		// Skip any non-key files from the folder
 		if nonKeyFile(fi) {
-			fmt.Printf("Ignoring file on account scan: %s\n", path)
+			ks.ui.Logf("Ignoring file on account scan: %s\n", path)
 			continue
 		}
 		acc, err := readAccount(path)
 		if err != nil {
-			fmt.Printf("Error while reading keystore account from path: %s, %v\n", path, err)
+			ks.ui.Errorf("Error while reading keystore account from path: %s, %v\n", path, err)
 			continue
 		}
 		accounts = append(accounts, acc)
@@ -78,17 +78,9 @@ func (ks *KeyStore) Accounts() ([]*accounts.Account, error) {
 
 // SignHash calculates a ECDSA signature for the given hash. The produced
 // signature is in the [R || S || V] format where V is 0 or 1.
-func (ks *KeyStore) SignHash(a accounts.Account, hash []byte) ([]byte, error) {
-	// Look up the key to sign with and abort if it cannot be found
-	ks.mu.RLock()
-	defer ks.mu.RUnlock()
-
-	unlockedKey, found := ks.unlocked[a.Address]
-	if !found {
-		return nil, ErrLocked
-	}
+func (ks *KeyStore) SignHash(key *ecdsa.PrivateKey, hash []byte) ([]byte, error) {
 	// Sign the hash using plain ECDSA operations
-	return crypto.Sign(hash, unlockedKey.PrivateKey)
+	return crypto.Sign(hash, key)
 }
 
 // SignTx signs the given transaction with the requested address.

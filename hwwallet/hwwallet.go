@@ -1,21 +1,64 @@
 package hwwallet
 
 import (
+	"errors"
 	"fmt"
+	"math/big"
 
 	"github.com/ethereum/go-ethereum/accounts"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
+)
+
+var (
+	DefaultHDPaths = []string{
+		"m/44'/60'/%d'/0/0", // aka "ledger live"
+		// "m/44'/60'/0'/%d",   // aka "ledger legacy"
+	}
 )
 
 type HWWallet interface {
+	Scheme() string
 	Status() string
 	Label() string
 	Derive(path accounts.DerivationPath) (common.Address, error)
+	SignTx(path accounts.DerivationPath, tx *types.Transaction, chainID big.Int) (common.Address, *types.Transaction, error)
 }
 
-func GetAccount(wallet HWWallet, hdpath string) (accounts.Account, error) {
-	// fmt.Printf("derive account from hd-path: %s\n", hdpath)
-	path, _ := accounts.ParseDerivationPath(hdpath)
+// find an address from max paths provided
+func Find(wallet HWWallet, a common.Address, defaultHDPaths []string, max int) ([]accounts.Account, error) {
+	accs, err := Accounts(wallet, defaultHDPaths, max)
+	if err != nil {
+		return nil, err
+	}
+	found := []accounts.Account{}
+	for _, acc := range accs {
+		if acc.Address == a {
+			found = append(found, acc)
+		}
+	}
+	return found, nil
+}
+
+func FindOne(wallet HWWallet, a common.Address, defaultHDPaths []string, max int) (accounts.Account, error) {
+	accs, err := Find(wallet, a, defaultHDPaths, max)
+	if err != nil {
+		return accounts.Account{}, err
+	}
+	if len(accs) == 0 {
+		return accounts.Account{}, errors.New(fmt.Sprintf("%s: No accounts found for address: %v", wallet.Scheme(), a))
+	}
+	if len(accs) > 1 {
+		return accounts.Account{}, errors.New(fmt.Sprintf("%s: Found %d accounts for address: %v", wallet.Scheme(), len(accs), a))
+	}
+	return accs[0], nil
+}
+
+func Account(wallet HWWallet, hdpath string) (accounts.Account, error) {
+	path, err := accounts.ParseDerivationPath(hdpath)
+	if err != nil {
+		return accounts.Account{}, err
+	}
 	da, err := wallet.Derive(path)
 	if err != nil {
 		return accounts.Account{}, err
@@ -23,19 +66,19 @@ func GetAccount(wallet HWWallet, hdpath string) (accounts.Account, error) {
 		return accounts.Account{
 			Address: da,
 			URL: accounts.URL{
-				Scheme: "trezor",
+				Scheme: wallet.Scheme(),
 				Path:   hdpath,
 			},
 		}, nil
 	}
 }
 
-func GetAccounts(wallet HWWallet, defaultHDPaths []string, max int) ([]accounts.Account, error) {
+func Accounts(wallet HWWallet, defaultHDPaths []string, max int) ([]accounts.Account, error) {
 	accs := []accounts.Account{}
 	for i := range defaultHDPaths {
 		for j := 0; j <= max; j++ {
 			pathstr := fmt.Sprintf(defaultHDPaths[i], j)
-			acc, err := GetAccount(wallet, pathstr)
+			acc, err := Account(wallet, pathstr)
 			if err != nil {
 				return nil, err
 			}
