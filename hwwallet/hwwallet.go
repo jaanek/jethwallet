@@ -8,6 +8,7 @@ import (
 	"github.com/ethereum/go-ethereum/accounts"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/jaanek/jethwallet/ui"
 )
 
 var (
@@ -23,6 +24,26 @@ type HWWallet interface {
 	Label() string
 	Derive(path accounts.DerivationPath) (common.Address, error)
 	SignTx(path accounts.DerivationPath, tx *types.Transaction, chainID big.Int) (common.Address, *types.Transaction, error)
+	SignMessage(path accounts.DerivationPath, msg []byte) (common.Address, []byte, error)
+}
+
+func FindOneFromWallets(term ui.Screen, wallets []HWWallet, fromAddr common.Address, defaultHDPaths []string, max int) (HWWallet, accounts.Account, error) {
+	var (
+		acc accounts.Account
+		hww HWWallet
+		err error
+	)
+	for _, w := range wallets {
+		acc, err = FindOne(w, fromAddr, defaultHDPaths, max)
+		if err != nil {
+			// log out that we did not found from wallet or there was multiple
+			term.Error(err.Error())
+			continue
+		}
+		hww = w
+		break
+	}
+	return hww, acc, nil
 }
 
 // find an address from max paths provided

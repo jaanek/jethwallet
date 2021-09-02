@@ -21,7 +21,7 @@ var (
 	max          int
 	flagQuiet    bool
 
-	// tx params
+	// sign tx params
 	flagNonce     string
 	flagFrom      string
 	flagTo        string
@@ -33,6 +33,10 @@ var (
 	flagChainID   string
 	flagInput     string
 	flagSig       bool
+	
+        // sign msg, recover params
+	flagAddEthPrefix bool
+	flagSignature    string
 )
 
 func init() {
@@ -47,22 +51,38 @@ func init() {
 		}
 		return nil
 	}
+
+	// list cmd flags
 	listAccountsCmd.Flags().StringVar(&hdpath, "hd", "", "hd derivation path")
-	txCmd.Flags().StringVar(&flagNonce, "nonce", "", "")
-	txCmd.Flags().StringVar(&flagFrom, "from", "", "an account to send from")
-	txCmd.Flags().StringVar(&flagTo, "to", "", "send to or if not provided then input required with contract data")
-	txCmd.Flags().StringVar(&flagGasLimit, "gas-limit", "", "in wei")
-	txCmd.Flags().StringVar(&flagGasPrice, "gas-price", "", "for legacy tx")
-	txCmd.Flags().StringVar(&flagGasTip, "gas-tip", "", "for dynamic tx")
-	txCmd.Flags().StringVar(&flagGasFeeCap, "gas-maxfee", "", "for dynamic tx")
-	txCmd.Flags().StringVar(&flagValue, "value", "", "in wei")
-	txCmd.Flags().StringVar(&flagChainID, "chain-id", "", "1: mainnet, 5: goerli")
-	txCmd.Flags().StringVar(&flagInput, "input", "", "A hexadecimal input data for tx")
-	txCmd.Flags().BoolVar(&flagSig, "sig", false, "output only signature parts(r,s,v) in hex")
+
+	// sign tx flags
+	signCmd.Flags().StringVar(&flagNonce, "nonce", "", "")
+	signCmd.Flags().StringVar(&flagFrom, "from", "", "an account to send from")
+	signCmd.Flags().StringVar(&flagTo, "to", "", "send to or if not provided then input required with contract data")
+	signCmd.Flags().StringVar(&flagGasLimit, "gas-limit", "", "in wei")
+	signCmd.Flags().StringVar(&flagGasPrice, "gas-price", "", "for legacy tx")
+	signCmd.Flags().StringVar(&flagGasTip, "gas-tip", "", "for dynamic tx")
+	signCmd.Flags().StringVar(&flagGasFeeCap, "gas-maxfee", "", "for dynamic tx")
+	signCmd.Flags().StringVar(&flagValue, "value", "", "in wei")
+	signCmd.Flags().StringVar(&flagChainID, "chain-id", "", "1: mainnet, 5: goerli")
+	signCmd.Flags().StringVar(&flagInput, "input", "", "A hexadecimal input data for tx")
+	signCmd.Flags().BoolVar(&flagSig, "sig", false, "output only signature parts(r,s,v) in hex")
+
+	// sign msg flags
+	signMsgCmd.Flags().StringVar(&flagFrom, "from", "", "an account to use to sign")
+	signMsgCmd.Flags().StringVar(&flagInput, "data", "", "input data to sign. If prefixed with 0x then interpreted as hexidecimal data, otherwise as plain text")
+	signMsgCmd.Flags().BoolVar(&flagAddEthPrefix, "with-eth-prefix", false, "Add Ethereum signature prefix: 'x19Ethereum Signed Message:' in front of input data")
+
+	// recover address flags
+	recoverCmd.Flags().StringVar(&flagInput, "data", "", "input data (with 0x prefix means hexadecimal data, otherwise plain text) that was used to generate a signature")
+	recoverCmd.Flags().StringVar(&flagSignature, "sig", "", "a signature of input data. Used to derive an ethereum address form it")
+	recoverCmd.Flags().BoolVar(&flagAddEthPrefix, "with-eth-prefix", false, "Add Ethereum signature prefix to data before hashing: 'x19Ethereum Signed Message:' in front of input data")
 
 	rootCmd.AddCommand(listAccountsCmd)
 	rootCmd.AddCommand(newAccountCmd)
-	rootCmd.AddCommand(txCmd)
+	rootCmd.AddCommand(signCmd)
+	rootCmd.AddCommand(signMsgCmd)
+	rootCmd.AddCommand(recoverCmd)
 }
 
 var rootCmd = &cobra.Command{
@@ -97,12 +117,40 @@ var newAccountCmd = &cobra.Command{
 	},
 }
 
-var txCmd = &cobra.Command{
-	Use:   "tx",
-	Short: "Sign a transaction",
+var signCmd = &cobra.Command{
+	Use:     "sign",
+	Aliases: []string{"tx"},
+	Short:   "Sign a transaction",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		term := ui.NewTerminal(flagQuiet)
 		err := signTx(term, cmd, args)
+		if err != nil {
+			term.Error(err)
+		}
+		return nil
+	},
+}
+
+var signMsgCmd = &cobra.Command{
+	Use:     "sign-msg",
+	Aliases: []string{"msg"},
+	Short:   "Sign a message",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		term := ui.NewTerminal(flagQuiet)
+		err := signMsg(term, cmd, args)
+		if err != nil {
+			term.Error(err)
+		}
+		return nil
+	},
+}
+
+var recoverCmd = &cobra.Command{
+	Use:   "recover",
+	Short: "Recover an address from signature",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		term := ui.NewTerminal(flagQuiet)
+		err := recoverAddress(term, cmd, args)
 		if err != nil {
 			term.Error(err)
 		}

@@ -209,6 +209,10 @@ func (w *ledgerWallet) Label() string {
 	return fmt.Sprintf("%x", w.version)
 }
 
+func (w *ledgerWallet) SignMessage(path accounts.DerivationPath, msg []byte) (common.Address, []byte, error) {
+	return common.Address{}, nil, accounts.ErrNotSupported
+}
+
 // SignTx sends the transaction to the Ledger and
 // waits for the user to confirm or deny the transaction.
 //

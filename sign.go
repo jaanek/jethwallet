@@ -107,22 +107,11 @@ func signTx(term ui.Screen, cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return err
 		}
-		var acc accounts.Account
-		var hww hwwallet.HWWallet
-		for _, w := range wallets {
-			acc, err = hwwallet.FindOne(w, fromAddr, hwwallet.DefaultHDPaths, max)
-			if err != nil {
-				// log out that we did not found from wallet or there was multiple
-				term.Print(err.Error())
-				continue
-			}
-			hww = w
-			break
-		}
+		hww, acc, _ := hwwallet.FindOneFromWallets(term, wallets, fromAddr, hwwallet.DefaultHDPaths, max)
 		if acc == (accounts.Account{}) {
-			return errors.New(fmt.Sprintf("No accounts found for address: %s\n", fromAddr))
+			return errors.New(fmt.Sprintf("No account found for address: %s\n", fromAddr))
 		}
-		term.Print(fmt.Sprintf("Found account: %v, path: %s ...", acc.Address, acc.URL.Path))
+		term.Logf("Found account: %v, path: %s ...", acc.Address, acc.URL.Path)
 		path, err := accounts.ParseDerivationPath(acc.URL.Path)
 		if err != nil {
 			return err
@@ -152,6 +141,7 @@ func signTx(term ui.Screen, cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return err
 		}
+		defer keystore.ZeroKey(key.PrivateKey)
 		signed, err = ks.SignTx(key.PrivateKey, rawTx, chainID)
 		if err != nil {
 			return err

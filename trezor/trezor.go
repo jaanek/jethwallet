@@ -129,7 +129,21 @@ func (w *trezorWallet) Label() string {
 	return w.features.GetLabel()
 }
 
-const ChunkedMax = 1024
+// https://github.com/trezor/trezor-firmware/blob/master/python/src/trezorlib/ethereum.py#L127
+func (w *trezorWallet) SignMessage(path accounts.DerivationPath, msg []byte) (common.Address, []byte, error) {
+	if w.device == nil {
+		return common.Address{}, nil, accounts.ErrWalletClosed
+	}
+	var request = &trezorproto.EthereumSignMessage{
+		AddressN: []uint32(path),
+		Message:  msg,
+	}
+	response := new(trezorproto.EthereumMessageSignature)
+	if err := w.Call(request, response); err != nil {
+		return common.Address{}, nil, err
+	}
+	return common.HexToAddress(*response.Address), response.Signature, nil
+}
 
 // SignTx sends the transaction to the Trezor and
 // waits for the user to confirm or deny the transaction.
@@ -149,7 +163,7 @@ func (w *trezorWallet) SignTx(path accounts.DerivationPath, tx *types.Transactio
 	data := tx.Data()
 	length := uint32(len(data))
 	var dataInitialChunk []byte
-	if length > ChunkedMax { // Send the data chunked if that was requested
+	if length > 1024 { // Send the data chunked if that was requested
 		dataInitialChunk, data = data[:1024], data[1024:]
 	} else {
 		dataInitialChunk, data = data, nil
@@ -198,8 +212,9 @@ func (w *trezorWallet) sendTx(req proto.Message, tx *types.Transaction, chainID 
 		return common.Address{}, nil, err
 	}
 	for response.DataLength != nil && int(*response.DataLength) <= len(data) {
-		chunk := data[:*response.DataLength]
-		data = data[*response.DataLength:]
+		var chunk []byte
+		dataLen := *response.DataLength
+		chunk, data = data[:dataLen], data[dataLen:]
 
 		if err := w.Call(&trezorproto.EthereumTxAck{DataChunk: chunk}, response); err != nil {
 			return common.Address{}, nil, err

@@ -76,6 +76,11 @@ func (ks *KeyStore) Accounts() ([]*accounts.Account, error) {
 	return accounts, nil
 }
 
+// SignMessage signs keccak256(data).
+func (ks *KeyStore) SignData(key *ecdsa.PrivateKey, data []byte) ([]byte, error) {
+	return ks.SignHash(key, crypto.Keccak256(data))
+}
+
 // SignHash calculates a ECDSA signature for the given hash. The produced
 // signature is in the [R || S || V] format where V is 0 or 1.
 func (ks *KeyStore) SignHash(key *ecdsa.PrivateKey, hash []byte) ([]byte, error) {
@@ -206,8 +211,8 @@ func readAccount(path string) (*accounts.Account, error) {
 	}, nil
 }
 
-// zeroKey zeroes a private key in memory.
-func zeroKey(k *ecdsa.PrivateKey) {
+// ZeroKey zeroes a private key in memory.
+func ZeroKey(k *ecdsa.PrivateKey) {
 	b := k.D.Bits()
 	for i := range b {
 		b[i] = 0
