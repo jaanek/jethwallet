@@ -33,10 +33,13 @@ var (
 	flagChainID   string
 	flagInput     string
 	flagSig       bool
-	
-        // sign msg, recover params
+
+	// sign msg, recover params
 	flagAddEthPrefix bool
 	flagSignature    string
+
+	// encrypt, decrypt params
+	flagKey string
 )
 
 func init() {
@@ -78,11 +81,23 @@ func init() {
 	recoverCmd.Flags().StringVar(&flagSignature, "sig", "", "a signature of input data. Used to derive an ethereum address form it")
 	recoverCmd.Flags().BoolVar(&flagAddEthPrefix, "with-eth-prefix", false, "Add Ethereum signature prefix to data before hashing: 'x19Ethereum Signed Message:' in front of input data")
 
+	// encrypt
+	hwEncryptCmd.Flags().StringVar(&flagFrom, "from", "", "an account to use to encrypt")
+	hwEncryptCmd.Flags().StringVar(&flagKey, "key", "", "a key used to encrypt (with 0x prefix means hexadecimal data, otherwise plain text)")
+	hwEncryptCmd.Flags().StringVar(&flagInput, "data", "", "input data (with 0x prefix means hexadecimal data, otherwise plain text) to encrypt")
+
+	// decrypt
+	hwDecryptCmd.Flags().StringVar(&flagFrom, "from", "", "an account to use to decrypt")
+	hwDecryptCmd.Flags().StringVar(&flagKey, "key", "", "a key used to decrypt (with 0x prefix means hexadecimal data, otherwise plain text)")
+	hwDecryptCmd.Flags().StringVar(&flagInput, "data", "", "input data (with 0x prefix means hexadecimal data, otherwise plain text) to decrypt")
+
 	rootCmd.AddCommand(listAccountsCmd)
 	rootCmd.AddCommand(newAccountCmd)
 	rootCmd.AddCommand(signCmd)
 	rootCmd.AddCommand(signMsgCmd)
 	rootCmd.AddCommand(recoverCmd)
+	rootCmd.AddCommand(hwEncryptCmd)
+	rootCmd.AddCommand(hwDecryptCmd)
 }
 
 var rootCmd = &cobra.Command{
@@ -151,6 +166,34 @@ var recoverCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		term := ui.NewTerminal(flagQuiet)
 		err := recoverAddress(term, cmd, args)
+		if err != nil {
+			term.Error(err)
+		}
+		return nil
+	},
+}
+
+var hwEncryptCmd = &cobra.Command{
+	Use:     "hwencrypt",
+	Aliases: []string{"hwe"},
+	Short:   "Encrypt on Trezor wallet",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		term := ui.NewTerminal(flagQuiet)
+		err := hwEncrypt(term, cmd, args)
+		if err != nil {
+			term.Error(err)
+		}
+		return nil
+	},
+}
+
+var hwDecryptCmd = &cobra.Command{
+	Use:     "hwdecrypt",
+	Aliases: []string{"hwd"},
+	Short:   "Decrypt on Trezor wallet",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		term := ui.NewTerminal(flagQuiet)
+		err := hwDecrypt(term, cmd, args)
 		if err != nil {
 			term.Error(err)
 		}

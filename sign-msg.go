@@ -43,7 +43,7 @@ func signMsg(term ui.Screen, cmd *cobra.Command, args []string) error {
 		if acc == (accounts.Account{}) {
 			return errors.New(fmt.Sprintf("No account found for address: %s\n", fromAddr))
 		}
-		term.Logf("Found account: %v, path: %s ...", acc.Address, acc.URL.Path)
+		term.Logf("Found account: %v, path: %s ...\n", acc.Address, acc.URL.Path)
 		path, err := accounts.ParseDerivationPath(acc.URL.Path)
 		if err != nil {
 			return err

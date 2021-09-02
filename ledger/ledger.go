@@ -209,6 +209,14 @@ func (w *ledgerWallet) Label() string {
 	return fmt.Sprintf("%x", w.version)
 }
 
+func (w *ledgerWallet) Encrypt(path accounts.DerivationPath, key string, data []byte, askOnEncrypt, askOnDecrypt bool) ([]byte, error) {
+	return nil, accounts.ErrNotSupported
+}
+
+func (w *ledgerWallet) Decrypt(path accounts.DerivationPath, key string, data []byte, askOnEncrypt, askOnDecrypt bool) ([]byte, error) {
+	return nil, accounts.ErrNotSupported
+}
+
 func (w *ledgerWallet) SignMessage(path accounts.DerivationPath, msg []byte) (common.Address, []byte, error) {
 	return common.Address{}, nil, accounts.ErrNotSupported
 }

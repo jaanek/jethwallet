@@ -25,6 +25,8 @@ type HWWallet interface {
 	Derive(path accounts.DerivationPath) (common.Address, error)
 	SignTx(path accounts.DerivationPath, tx *types.Transaction, chainID big.Int) (common.Address, *types.Transaction, error)
 	SignMessage(path accounts.DerivationPath, msg []byte) (common.Address, []byte, error)
+	Encrypt(path accounts.DerivationPath, key string, data []byte, askOnEncrypt, askOnDecrypt bool) ([]byte, error)
+	Decrypt(path accounts.DerivationPath, key string, data []byte, askOnEncrypt, askOnDecrypt bool) ([]byte, error)
 }
 
 func FindOneFromWallets(term ui.Screen, wallets []HWWallet, fromAddr common.Address, defaultHDPaths []string, max int) (HWWallet, accounts.Account, error) {

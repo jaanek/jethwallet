@@ -1,6 +1,7 @@
 package trezor
 
 import (
+	"bytes"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -127,6 +128,59 @@ func (w *trezorWallet) Label() string {
 		return ""
 	}
 	return w.features.GetLabel()
+}
+
+// https://github.com/trezor/trezor-firmware/blob/master/python/src/trezorlib/misc.py#L63
+func (w *trezorWallet) Encrypt(path accounts.DerivationPath, key string, data []byte, askOnEncrypt, askOnDecrypt bool) ([]byte, error) {
+	if w.device == nil {
+		return nil, accounts.ErrWalletClosed
+	}
+	var err error
+	data, err = pkcs7pad(data, 16)
+	if err != nil {
+		return nil, err
+	}
+	var t bool = true
+	var request = &trezorproto.CipherKeyValue{
+		AddressN:     []uint32(path),
+		Key:          &key,
+		Value:        data,
+		Encrypt:      &t,
+		AskOnEncrypt: &askOnEncrypt,
+		AskOnDecrypt: &askOnDecrypt,
+		Iv:           []byte{},
+	}
+	response := new(trezorproto.CipheredKeyValue)
+	if err := w.Call(request, response); err != nil {
+		return nil, err
+	}
+	return response.Value, nil
+}
+
+// https://github.com/trezor/trezor-firmware/blob/master/python/src/trezorlib/misc.py#L87
+func (w *trezorWallet) Decrypt(path accounts.DerivationPath, key string, data []byte, askOnEncrypt, askOnDecrypt bool) ([]byte, error) {
+	if w.device == nil {
+		return nil, accounts.ErrWalletClosed
+	}
+	var t bool = false
+	var request = &trezorproto.CipherKeyValue{
+		AddressN:     []uint32(path),
+		Key:          &key,
+		Value:        data,
+		Encrypt:      &t,
+		AskOnEncrypt: &askOnEncrypt,
+		AskOnDecrypt: &askOnDecrypt,
+		Iv:           []byte{},
+	}
+	response := new(trezorproto.CipheredKeyValue)
+	if err := w.Call(request, response); err != nil {
+		return nil, err
+	}
+	data, err := pkcs7strip(response.Value, 16)
+	if err != nil {
+		return nil, err
+	}
+	return data, nil
 }
 
 // https://github.com/trezor/trezor-firmware/blob/master/python/src/trezorlib/ethereum.py#L127
@@ -430,3 +484,31 @@ func (w *trezorWallet) rawCall(req proto.Message) (trezorproto.MessageType, []by
 // if the device replies with a mismatching header. This usually means the device
 // is in browser mode.
 var errTrezorReplyInvalidHeader = errors.New("trezor: invalid reply header")
+
+// pkcs7strip remove pkcs7 padding
+func pkcs7strip(data []byte, blockSize int) ([]byte, error) {
+	length := len(data)
+	if length == 0 {
+		return nil, errors.New("pkcs7: Data is empty")
+	}
+	if length%blockSize != 0 {
+		return nil, errors.New("pkcs7: Data is not block-aligned")
+	}
+	padLen := int(data[length-1])
+	ref := bytes.Repeat([]byte{byte(padLen)}, padLen)
+	if padLen > blockSize || padLen == 0 || !bytes.HasSuffix(data, ref) {
+		return nil, errors.New("pkcs7: Invalid padding")
+	}
+	return data[:length-padLen], nil
+}
+
+// pkcs7pad add pkcs7 padding
+func pkcs7pad(data []byte, blockSize int) ([]byte, error) {
+	if blockSize < 0 || blockSize > 256 {
+		return nil, fmt.Errorf("pkcs7: Invalid block size %d", blockSize)
+	} else {
+		padLen := blockSize - len(data)%blockSize
+		padding := bytes.Repeat([]byte{byte(padLen)}, padLen)
+		return append(data, padding...), nil
+	}
+}
