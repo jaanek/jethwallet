@@ -32,10 +32,10 @@ func listAccounts(term ui.Screen, cmd *cobra.Command, args []string) error {
 				return err
 			}
 			for _, acc := range accs {
-				if flagQuiet {
-					term.Output(fmt.Sprintf("%s\n", acc.Address.Hex()))
-				} else {
+				if flagVerbose {
 					term.Output(fmt.Sprintf("%s hd-path-%s\n", acc.Address.Hex(), acc.URL.Path))
+				} else {
+					term.Output(fmt.Sprintf("%s\n", acc.Address.Hex()))
 				}
 			}
 		}
@@ -47,10 +47,10 @@ func listAccounts(term ui.Screen, cmd *cobra.Command, args []string) error {
 		}
 		term.Logf("Found %d account(s)\n", len(accounts))
 		for _, acc := range accounts {
-			if flagQuiet {
-				term.Output(fmt.Sprintf("%s\n", acc.Address))
-			} else {
+			if flagVerbose {
 				term.Output(fmt.Sprintf("%s path: %s\n", acc.Address, acc.URL.Path))
+			} else {
+				term.Output(fmt.Sprintf("%s\n", acc.Address))
 			}
 		}
 	}

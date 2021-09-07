@@ -19,7 +19,7 @@ var (
 	useLedger    bool
 	hdpath       string
 	max          int
-	flagQuiet    bool
+	flagVerbose  bool
 
 	// sign tx params
 	flagNonce     string
@@ -47,7 +47,7 @@ func init() {
 	rootCmd.PersistentFlags().BoolVar(&useTrezor, "trezor", false, "Use trezor wallet")
 	rootCmd.PersistentFlags().BoolVar(&useLedger, "ledger", false, "Use ledger wallet")
 	rootCmd.PersistentFlags().IntVarP(&max, "max", "n", 2, "max hd-paths to derive from")
-	rootCmd.PersistentFlags().BoolVarP(&flagQuiet, "quiet", "q", false, "be quiet when outputting results")
+	rootCmd.PersistentFlags().BoolVarP(&flagVerbose, "verbose", "q", false, "output debug info")
 	rootCmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
 		if keystorePath == "" && !useTrezor && !useLedger {
 			return errors.New("Specify wallet type to connect to: --keystore, --trezor or --ledger")
@@ -67,7 +67,7 @@ func init() {
 	signCmd.Flags().StringVar(&flagGasTip, "gas-tip", "", "for dynamic tx")
 	signCmd.Flags().StringVar(&flagGasFeeCap, "gas-maxfee", "", "for dynamic tx")
 	signCmd.Flags().StringVar(&flagValue, "value", "", "in wei")
-	signCmd.Flags().StringVar(&flagChainID, "chain-id", "", "1: mainnet, 5: goerli")
+	signCmd.Flags().StringVar(&flagChainID, "chain-id", "", "1: mainnet, 5: goerli, 250: Fantom, 137: Matic/Polygon")
 	signCmd.Flags().StringVar(&flagInput, "input", "", "A hexadecimal input data for tx")
 	signCmd.Flags().BoolVar(&flagSig, "sig", false, "output only signature parts(r,s,v) in hex")
 
@@ -110,7 +110,7 @@ var listAccountsCmd = &cobra.Command{
 	Aliases: []string{"ls"},
 	Short:   "List accounts",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		term := ui.NewTerminal(flagQuiet)
+		term := ui.NewTerminal(flagVerbose)
 		err := listAccounts(term, cmd, args)
 		if err != nil {
 			term.Error(err)
@@ -123,7 +123,7 @@ var newAccountCmd = &cobra.Command{
 	Use:   "new",
 	Short: "Create a new account in keystore",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		term := ui.NewTerminal(flagQuiet)
+		term := ui.NewTerminal(flagVerbose)
 		err := newAccount(term, cmd, args)
 		if err != nil {
 			term.Error(err)
@@ -137,7 +137,7 @@ var signCmd = &cobra.Command{
 	Aliases: []string{"tx"},
 	Short:   "Sign a transaction",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		term := ui.NewTerminal(flagQuiet)
+		term := ui.NewTerminal(flagVerbose)
 		err := signTx(term, cmd, args)
 		if err != nil {
 			term.Error(err)
@@ -151,7 +151,7 @@ var signMsgCmd = &cobra.Command{
 	Aliases: []string{"msg"},
 	Short:   "Sign a message",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		term := ui.NewTerminal(flagQuiet)
+		term := ui.NewTerminal(flagVerbose)
 		err := signMsg(term, cmd, args)
 		if err != nil {
 			term.Error(err)
@@ -164,7 +164,7 @@ var recoverCmd = &cobra.Command{
 	Use:   "recover",
 	Short: "Recover an address from signature",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		term := ui.NewTerminal(flagQuiet)
+		term := ui.NewTerminal(flagVerbose)
 		err := recoverAddress(term, cmd, args)
 		if err != nil {
 			term.Error(err)
@@ -178,7 +178,7 @@ var hwEncryptCmd = &cobra.Command{
 	Aliases: []string{"hwe"},
 	Short:   "Encrypt on Trezor wallet",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		term := ui.NewTerminal(flagQuiet)
+		term := ui.NewTerminal(flagVerbose)
 		err := hwEncrypt(term, cmd, args)
 		if err != nil {
 			term.Error(err)
@@ -192,7 +192,7 @@ var hwDecryptCmd = &cobra.Command{
 	Aliases: []string{"hwd"},
 	Short:   "Decrypt on Trezor wallet",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		term := ui.NewTerminal(flagQuiet)
+		term := ui.NewTerminal(flagVerbose)
 		err := hwDecrypt(term, cmd, args)
 		if err != nil {
 			term.Error(err)

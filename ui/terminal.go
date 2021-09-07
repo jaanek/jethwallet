@@ -19,11 +19,11 @@ type Screen interface {
 }
 
 type term struct {
-	quiet bool
+	verbose bool
 }
 
-func NewTerminal(quiet bool) Screen {
-	return &term{quiet: quiet}
+func NewTerminal(verbose bool) Screen {
+	return &term{verbose: verbose}
 }
 
 func (t *term) ReadPassword() ([]byte, error) {
@@ -39,17 +39,15 @@ func (t *term) Output(msg string) {
 }
 
 func (t *term) Logf(msg string, args ...interface{}) {
-	if t.quiet {
-		return
+	if t.verbose {
+		fmt.Fprintf(os.Stderr, fmt.Sprintf(msg, args...))
 	}
-	fmt.Fprintf(os.Stderr, fmt.Sprintf(msg, args...))
 }
 
 func (t *term) Log(msg interface{}) {
-	if t.quiet {
-		return
+	if t.verbose {
+		fmt.Fprintf(os.Stderr, "%v\n", msg)
 	}
-	fmt.Fprintf(os.Stderr, "%v\n", msg)
 }
 
 func (t *term) Errorf(msg string, args ...interface{}) {
