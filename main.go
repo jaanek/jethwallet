@@ -30,6 +30,8 @@ var (
 	flagGasTip    string
 	flagGasFeeCap string
 	flagValue     string
+	flagValueGwei bool
+	flagValueEth  bool
 	flagChainID   string
 	flagInput     string
 	flagSig       bool
@@ -47,7 +49,7 @@ func init() {
 	rootCmd.PersistentFlags().BoolVar(&useTrezor, "trezor", false, "Use trezor wallet")
 	rootCmd.PersistentFlags().BoolVar(&useLedger, "ledger", false, "Use ledger wallet")
 	rootCmd.PersistentFlags().IntVarP(&max, "max", "n", 2, "max hd-paths to derive from")
-	rootCmd.PersistentFlags().BoolVarP(&flagVerbose, "verbose", "q", false, "output debug info")
+	rootCmd.PersistentFlags().BoolVarP(&flagVerbose, "verbose", "v", false, "output debug info")
 	rootCmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
 		if keystorePath == "" && !useTrezor && !useLedger {
 			return errors.New("Specify wallet type to connect to: --keystore, --trezor or --ledger")
@@ -67,6 +69,8 @@ func init() {
 	signCmd.Flags().StringVar(&flagGasTip, "gas-tip", "", "for dynamic tx")
 	signCmd.Flags().StringVar(&flagGasFeeCap, "gas-maxfee", "", "for dynamic tx")
 	signCmd.Flags().StringVar(&flagValue, "value", "", "in wei")
+	signCmd.Flags().BoolVar(&flagValueGwei, "value-gwei", false, "indicate that provided --value is in gwei and not in wei")
+	signCmd.Flags().BoolVar(&flagValueEth, "value-eth", false, "indicate that provided --value is in eth and not in wei")
 	signCmd.Flags().StringVar(&flagChainID, "chain-id", "", "1: mainnet, 5: goerli, 250: Fantom, 137: Matic/Polygon")
 	signCmd.Flags().StringVar(&flagInput, "input", "", "A hexadecimal input data for tx")
 	signCmd.Flags().BoolVar(&flagSig, "sig", false, "output only signature parts(r,s,v) in hex")

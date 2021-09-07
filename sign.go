@@ -10,6 +10,7 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/common/math"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/jaanek/jethwallet/hwwallet"
 	"github.com/jaanek/jethwallet/keystore"
@@ -52,7 +53,16 @@ func signTx(term ui.Screen, cmd *cobra.Command, args []string) error {
 	}
 	var value *big.Int
 	if flagValue != "" {
-		value = math.MustParseBig256(flagValue)
+		var ok bool
+		value, ok = math.ParseBig256(flagValue)
+		if !ok {
+			return errors.New(fmt.Sprintf("invalid 256 bit integer: " + flagValue))
+		}
+		if flagValueEth {
+			value = new(big.Int).Mul(value, new(big.Int).SetInt64(params.Ether))
+		} else if flagValueGwei {
+			value = new(big.Int).Mul(value, new(big.Int).SetInt64(params.GWei))
+		}
 	} else {
 		value = new(big.Int)
 	}
