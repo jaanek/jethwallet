@@ -5,6 +5,7 @@ import (
 	"os"
 	"syscall"
 
+	"github.com/pkg/errors"
 	"golang.org/x/crypto/ssh/terminal"
 )
 
@@ -27,7 +28,8 @@ func NewTerminal(verbose bool) Screen {
 }
 
 func (t *term) ReadPassword() ([]byte, error) {
-	return terminal.ReadPassword(syscall.Stdin)
+	// return terminal.ReadPassword(syscall.Stdin)
+	return readPassword()
 }
 
 func (t *term) Print(msg string) {
@@ -56,4 +58,21 @@ func (t *term) Errorf(msg string, args ...interface{}) {
 
 func (t *term) Error(msg interface{}) {
 	fmt.Fprintf(os.Stderr, "%v\n", msg)
+}
+
+func readPassword() ([]byte, error) {
+	var fd int
+	if terminal.IsTerminal(syscall.Stdin) {
+		fd = syscall.Stdin
+	} else {
+		tty, err := os.Open("/dev/tty")
+		if err != nil {
+			return nil, errors.Wrap(err, "error allocating terminal")
+		}
+		defer tty.Close()
+		fd = int(tty.Fd())
+	}
+	pass, err := terminal.ReadPassword(fd)
+	fmt.Fprintln(os.Stderr)
+	return pass, err
 }

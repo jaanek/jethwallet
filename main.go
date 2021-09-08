@@ -1,16 +1,34 @@
 package main
 
 import (
+	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/jaanek/jethwallet/ui"
 	"github.com/spf13/cobra"
 )
+
+type StdInput struct {
+	RpcUrl         string `json:"rpcUrl"`
+	ChainId        string `json:"chainId"`
+	From           string `json:"from"`
+	To             string `json:"to"`
+	Value          string `json:"value"`
+	Input          string `json:"input"`
+	GasTip         string `json:"gasTip"`
+	GasPrice       string `json:"gasPrice"`
+	Gas            string `json:"gas"`
+	TxCount        string `json:"txCount"`
+	TxCountPending string `json:"txCountPending"`
+	Balance        string `json:"balance"`
+}
 
 var (
 	// general params
@@ -32,6 +50,7 @@ var (
 	flagValue     string
 	flagValueGwei bool
 	flagValueEth  bool
+	flagRpcUrl    string
 	flagChainID   string
 	flagInput     string
 	flagSig       bool
@@ -209,6 +228,31 @@ func main() {
 	ctx, cancel := RootContext()
 	defer cancel()
 
+	// try to read command params from from std input json stream
+	if isReadFromStdInArgSpecified(os.Args) {
+		stdInStr := StdInReadAll()
+		if len(stdInStr) > 0 {
+			input := StdInput{}
+			err := json.Unmarshal([]byte(stdInStr), &input)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error while parsing stdin json: %s\n", err)
+			} else {
+				flagChainID = input.ChainId
+				flagRpcUrl = input.RpcUrl
+				flagNonce = input.TxCount
+				flagFrom = input.From
+				flagTo = input.To
+				flagGasLimit = input.Gas
+				flagGasPrice = input.GasPrice
+				flagGasTip = input.GasTip
+				flagGasFeeCap = input.GasPrice
+				flagValue = input.Value
+				flagInput = input.Input
+			}
+		}
+	}
+
+	// run command
 	if err := rootCmd.ExecuteContext(ctx); err != nil {
 		fmt.Println(err)
 		os.Exit(1)
@@ -233,4 +277,28 @@ func RootContext() (context.Context, context.CancelFunc) {
 		}
 	}()
 	return ctx, cancel
+}
+
+func isReadFromStdInArgSpecified(args []string) bool {
+	for _, arg := range args {
+		if arg == "--" {
+			return true
+		}
+	}
+	return false
+}
+
+func StdInReadAll() string {
+	arr := make([]string, 0)
+	scanner := bufio.NewScanner(os.Stdin)
+	for {
+		scanner.Scan()
+		text := scanner.Text()
+		if len(text) > 0 {
+			arr = append(arr, text)
+		} else {
+			break
+		}
+	}
+	return strings.Join(arr, "")
 }

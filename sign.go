@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math/big"
@@ -18,6 +19,13 @@ import (
 	"github.com/jaanek/jethwallet/wallet"
 	"github.com/spf13/cobra"
 )
+
+type Output struct {
+	RpcUrl         string `json:"rpcUrl"`
+	ChainId        string `json:"chainId"`
+	RawTransaction string `json:"tx"`
+	TransactionSig string `json:"txsig"`
+}
 
 func signTx(term ui.Screen, cmd *cobra.Command, args []string) error {
 	// validate flags
@@ -157,12 +165,29 @@ func signTx(term ui.Screen, cmd *cobra.Command, args []string) error {
 			return err
 		}
 	}
-	if flagSig {
-		v, r, s := signed.RawSignatureValues()
-		term.Output(fmt.Sprintf("0x%064x%064x%02x", r, s, v))
-	} else {
-		encoded, _ := rlp.EncodeToBytes(signed)
-		term.Output(hexutil.Encode(encoded[:]))
+
+	// output
+	encoded, _ := rlp.EncodeToBytes(signed)
+	encodedRawTx := hexutil.Encode(encoded[:])
+	v, r, s := signed.RawSignatureValues()
+	txSig := fmt.Sprintf("0x%064x%064x%02x", r, s, v)
+	out := Output{
+		RpcUrl:         flagRpcUrl,
+		ChainId:        flagChainID,
+		RawTransaction: encodedRawTx,
+		TransactionSig: txSig,
 	}
+	outb, err := json.Marshal(&out)
+	if err != nil {
+		return err
+	}
+	term.Output(fmt.Sprintf("%s\n", string(outb)))
+	// if flagSig {
+	// 	v, r, s := signed.RawSignatureValues()
+	// 	term.Output(fmt.Sprintf("0x%064x%064x%02x", r, s, v))
+	// } else {
+	// 	encoded, _ := rlp.EncodeToBytes(signed)
+	// 	term.Output(hexutil.Encode(encoded[:]))
+	// }
 	return nil
 }
