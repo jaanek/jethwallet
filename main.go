@@ -21,7 +21,7 @@ type StdInput struct {
 	From           string `json:"from"`
 	To             string `json:"to"`
 	Value          string `json:"value"`
-	Input          string `json:"input"`
+	Data           string `json:"data"`
 	GasTip         string `json:"gasTip"`
 	GasPrice       string `json:"gasPrice"`
 	Gas            string `json:"gas"`
@@ -247,7 +247,7 @@ func main() {
 				flagGasTip = input.GasTip
 				flagGasFeeCap = input.GasPrice
 				flagValue = input.Value
-				flagInput = input.Input
+				flagInput = input.Data
 			}
 		}
 	}
