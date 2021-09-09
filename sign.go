@@ -88,19 +88,10 @@ func signTx(term ui.Screen, cmd *cobra.Command, args []string) error {
 
 	// Create the transaction to sign
 	var rawTx *types.Transaction
-	if gasPrice != nil {
-		baseTx := &types.LegacyTx{
-			Nonce:    nonce,
-			GasPrice: gasPrice,
-			Gas:      gasLimit,
-			Value:    value,
-			Data:     input,
+	if gasTipCap != nil {
+		if gasFeeCap == nil {
+			gasFeeCap = gasPrice
 		}
-		if to != nil {
-			baseTx.To = to
-		}
-		rawTx = types.NewTx(baseTx)
-	} else {
 		baseTx := &types.DynamicFeeTx{
 			ChainID:   chainID,
 			Nonce:     nonce,
@@ -114,6 +105,20 @@ func signTx(term ui.Screen, cmd *cobra.Command, args []string) error {
 			baseTx.To = to
 		}
 		rawTx = types.NewTx(baseTx)
+	} else if gasPrice != nil {
+		baseTx := &types.LegacyTx{
+			Nonce:    nonce,
+			GasPrice: gasPrice,
+			Gas:      gasLimit,
+			Value:    value,
+			Data:     input,
+		}
+		if to != nil {
+			baseTx.To = to
+		}
+		rawTx = types.NewTx(baseTx)
+	} else {
+		return errors.New("No --gas-price nor --gas-tip found in args")
 	}
 
 	// sign tx
