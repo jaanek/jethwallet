@@ -2,10 +2,8 @@ module github.com/jaanek/jethwallet
 
 go 1.17
 
-replace github.com/ethereum/go-ethereum => ../../3party/go-ethereum-jaanek
-
 require (
-	github.com/ethereum/go-ethereum v1.10.8
+	github.com/ethereum/go-ethereum v1.10.9-0.20210908122159-90987db7334c
 	github.com/golang/protobuf v1.5.2
 	github.com/google/uuid v1.1.5
 	github.com/karalabe/usb v0.0.0-20190919080040-51dc0efba356

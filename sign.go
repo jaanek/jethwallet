@@ -12,7 +12,6 @@ import (
 	"github.com/ethereum/go-ethereum/common/math"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/params"
-	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/jaanek/jethwallet/hwwallet"
 	"github.com/jaanek/jethwallet/keystore"
 	"github.com/jaanek/jethwallet/ui"
@@ -172,7 +171,10 @@ func signTx(term ui.Screen, cmd *cobra.Command, args []string) error {
 	}
 
 	// output
-	encoded, _ := rlp.EncodeToBytes(signed)
+	encoded, err := signed.MarshalBinary()
+	if err != nil {
+		return err
+	}
 	encodedRawTx := hexutil.Encode(encoded[:])
 	v, r, s := signed.RawSignatureValues()
 	txSig := fmt.Sprintf("0x%064x%064x%02x", r, s, v)
@@ -187,12 +189,5 @@ func signTx(term ui.Screen, cmd *cobra.Command, args []string) error {
 		return err
 	}
 	term.Output(fmt.Sprintf("%s\n", string(outb)))
-	// if flagSig {
-	// 	v, r, s := signed.RawSignatureValues()
-	// 	term.Output(fmt.Sprintf("0x%064x%064x%02x", r, s, v))
-	// } else {
-	// 	encoded, _ := rlp.EncodeToBytes(signed)
-	// 	term.Output(hexutil.Encode(encoded[:]))
-	// }
 	return nil
 }
