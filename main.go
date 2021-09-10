@@ -11,6 +11,8 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/jaanek/jethwallet/commands"
+	"github.com/jaanek/jethwallet/flags"
 	"github.com/jaanek/jethwallet/ui"
 	"github.com/spf13/cobra"
 )
@@ -30,89 +32,58 @@ type StdInput struct {
 	Balance        string `json:"balance"`
 }
 
-var (
-	// general params
-	keystorePath string
-	useTrezor    bool
-	useLedger    bool
-	hdpath       string
-	max          int
-	flagVerbose  bool
-
-	// sign tx params
-	flagNonce     string
-	flagFrom      string
-	flagTo        string
-	flagGasLimit  string
-	flagGasPrice  string
-	flagGasTip    string
-	flagGasFeeCap string
-	flagValue     string
-	flagValueGwei bool
-	flagValueEth  bool
-	flagRpcUrl    string
-	flagChainID   string
-	flagInput     string
-	flagSig       bool
-
-	// sign msg, recover params
-	flagAddEthPrefix bool
-	flagSignature    string
-
-	// encrypt, decrypt params
-	flagKey string
-)
+var flag = flags.Flags{}
 
 func init() {
-	rootCmd.PersistentFlags().StringVar(&keystorePath, "keystore", "", "A key-store directory path")
-	rootCmd.PersistentFlags().BoolVar(&useTrezor, "trezor", false, "Use trezor wallet")
-	rootCmd.PersistentFlags().BoolVar(&useLedger, "ledger", false, "Use ledger wallet")
-	rootCmd.PersistentFlags().IntVarP(&max, "max", "n", 2, "max hd-paths to derive from")
-	rootCmd.PersistentFlags().BoolVarP(&flagVerbose, "verbose", "v", false, "output debug info")
+	rootCmd.PersistentFlags().StringVar(&flag.KeystorePath, "keystore", "", "A key-store directory path")
+	rootCmd.PersistentFlags().BoolVar(&flag.UseTrezor, "trezor", false, "Use trezor wallet")
+	rootCmd.PersistentFlags().BoolVar(&flag.UseLedger, "ledger", false, "Use ledger wallet")
+	rootCmd.PersistentFlags().IntVarP(&flag.Max, "max", "n", 2, "max hd-paths to derive from")
+	rootCmd.PersistentFlags().BoolVarP(&flag.FlagVerbose, "verbose", "v", false, "output debug info")
 	rootCmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
-		if keystorePath == "" && !useTrezor && !useLedger {
+		if flag.KeystorePath == "" && !flag.UseTrezor && !flag.UseLedger {
 			return errors.New("Specify wallet type to connect to: --keystore, --trezor or --ledger")
 		}
 		return nil
 	}
 
 	// list cmd flags
-	listAccountsCmd.Flags().StringVar(&hdpath, "hd", "", "hd derivation path")
+	listAccountsCmd.Flags().StringVar(&flag.Hdpath, "hd", "", "hd derivation path")
 
 	// sign tx flags
-	signCmd.Flags().StringVar(&flagNonce, "nonce", "", "")
-	signCmd.Flags().StringVar(&flagFrom, "from", "", "an account to send from")
-	signCmd.Flags().StringVar(&flagTo, "to", "", "send to or if not provided then input required with contract data")
-	signCmd.Flags().StringVar(&flagGasLimit, "gas-limit", "", "in wei")
-	signCmd.Flags().StringVar(&flagGasPrice, "gas-price", "", "for legacy tx")
-	signCmd.Flags().StringVar(&flagGasTip, "gas-tip", "", "for dynamic tx")
-	signCmd.Flags().StringVar(&flagGasFeeCap, "gas-maxfee", "", "for dynamic tx")
-	signCmd.Flags().StringVar(&flagValue, "value", "", "in wei")
-	signCmd.Flags().BoolVar(&flagValueGwei, "value-gwei", false, "indicate that provided --value is in gwei and not in wei")
-	signCmd.Flags().BoolVar(&flagValueEth, "value-eth", false, "indicate that provided --value is in eth and not in wei")
-	signCmd.Flags().StringVar(&flagChainID, "chain-id", "", "1: mainnet, 5: goerli, 250: Fantom, 137: Matic/Polygon")
-	signCmd.Flags().StringVar(&flagInput, "input", "", "A hexadecimal input data for tx")
-	signCmd.Flags().BoolVar(&flagSig, "sig", false, "output only signature parts(r,s,v) in hex")
+	signCmd.Flags().StringVar(&flag.FlagNonce, "nonce", "", "")
+	signCmd.Flags().StringVar(&flag.FlagFrom, "from", "", "an account to send from")
+	signCmd.Flags().StringVar(&flag.FlagTo, "to", "", "send to or if not provided then input required with contract data")
+	signCmd.Flags().StringVar(&flag.FlagGasLimit, "gas-limit", "", "in wei")
+	signCmd.Flags().StringVar(&flag.FlagGasPrice, "gas-price", "", "for legacy tx")
+	signCmd.Flags().StringVar(&flag.FlagGasTip, "gas-tip", "", "for dynamic tx")
+	signCmd.Flags().StringVar(&flag.FlagGasFeeCap, "gas-maxfee", "", "for dynamic tx")
+	signCmd.Flags().StringVar(&flag.FlagValue, "value", "", "in wei")
+	signCmd.Flags().BoolVar(&flag.FlagValueGwei, "value-gwei", false, "indicate that provided --value is in gwei and not in wei")
+	signCmd.Flags().BoolVar(&flag.FlagValueEth, "value-eth", false, "indicate that provided --value is in eth and not in wei")
+	signCmd.Flags().StringVar(&flag.FlagChainID, "chain-id", "", "1: mainnet, 5: goerli, 250: Fantom, 137: Matic/Polygon")
+	signCmd.Flags().StringVar(&flag.FlagInput, "input", "", "A hexadecimal input data for tx")
+	signCmd.Flags().BoolVar(&flag.FlagSig, "sig", false, "output only signature parts(r,s,v) in hex")
 
 	// sign msg flags
-	signMsgCmd.Flags().StringVar(&flagFrom, "from", "", "an account to use to sign")
-	signMsgCmd.Flags().StringVar(&flagInput, "data", "", "input data to sign. If prefixed with 0x then interpreted as hexidecimal data, otherwise as plain text")
-	signMsgCmd.Flags().BoolVar(&flagAddEthPrefix, "with-eth-prefix", false, "Add Ethereum signature prefix: 'x19Ethereum Signed Message:' in front of input data")
+	signMsgCmd.Flags().StringVar(&flag.FlagFrom, "from", "", "an account to use to sign")
+	signMsgCmd.Flags().StringVar(&flag.FlagInput, "data", "", "input data to sign. If prefixed with 0x then interpreted as hexidecimal data, otherwise as plain text")
+	signMsgCmd.Flags().BoolVar(&flag.FlagAddEthPrefix, "with-eth-prefix", false, "Add Ethereum signature prefix: 'x19Ethereum Signed Message:' in front of input data")
 
 	// recover address flags
-	recoverCmd.Flags().StringVar(&flagInput, "data", "", "input data (with 0x prefix means hexadecimal data, otherwise plain text) that was used to generate a signature")
-	recoverCmd.Flags().StringVar(&flagSignature, "sig", "", "a signature of input data. Used to derive an ethereum address form it")
-	recoverCmd.Flags().BoolVar(&flagAddEthPrefix, "with-eth-prefix", false, "Add Ethereum signature prefix to data before hashing: 'x19Ethereum Signed Message:' in front of input data")
+	recoverCmd.Flags().StringVar(&flag.FlagInput, "data", "", "input data (with 0x prefix means hexadecimal data, otherwise plain text) that was used to generate a signature")
+	recoverCmd.Flags().StringVar(&flag.FlagSignature, "sig", "", "a signature of input data. Used to derive an ethereum address form it")
+	recoverCmd.Flags().BoolVar(&flag.FlagAddEthPrefix, "with-eth-prefix", false, "Add Ethereum signature prefix to data before hashing: 'x19Ethereum Signed Message:' in front of input data")
 
 	// encrypt
-	hwEncryptCmd.Flags().StringVar(&flagFrom, "from", "", "an account to use to encrypt")
-	hwEncryptCmd.Flags().StringVar(&flagKey, "key", "", "a key used to encrypt (with 0x prefix means hexadecimal data, otherwise plain text)")
-	hwEncryptCmd.Flags().StringVar(&flagInput, "data", "", "input data (with 0x prefix means hexadecimal data, otherwise plain text) to encrypt")
+	hwEncryptCmd.Flags().StringVar(&flag.FlagFrom, "from", "", "an account to use to encrypt")
+	hwEncryptCmd.Flags().StringVar(&flag.FlagKey, "key", "", "a key used to encrypt (with 0x prefix means hexadecimal data, otherwise plain text)")
+	hwEncryptCmd.Flags().StringVar(&flag.FlagInput, "data", "", "input data (with 0x prefix means hexadecimal data, otherwise plain text) to encrypt")
 
 	// decrypt
-	hwDecryptCmd.Flags().StringVar(&flagFrom, "from", "", "an account to use to decrypt")
-	hwDecryptCmd.Flags().StringVar(&flagKey, "key", "", "a key used to decrypt (with 0x prefix means hexadecimal data, otherwise plain text)")
-	hwDecryptCmd.Flags().StringVar(&flagInput, "data", "", "input data (with 0x prefix means hexadecimal data, otherwise plain text) to decrypt")
+	hwDecryptCmd.Flags().StringVar(&flag.FlagFrom, "from", "", "an account to use to decrypt")
+	hwDecryptCmd.Flags().StringVar(&flag.FlagKey, "key", "", "a key used to decrypt (with 0x prefix means hexadecimal data, otherwise plain text)")
+	hwDecryptCmd.Flags().StringVar(&flag.FlagInput, "data", "", "input data (with 0x prefix means hexadecimal data, otherwise plain text) to decrypt")
 
 	rootCmd.AddCommand(listAccountsCmd)
 	rootCmd.AddCommand(newAccountCmd)
@@ -134,8 +105,8 @@ var listAccountsCmd = &cobra.Command{
 	Aliases: []string{"ls"},
 	Short:   "List accounts",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		term := ui.NewTerminal(flagVerbose)
-		err := listAccounts(term, cmd, args)
+		term := ui.NewTerminal(flag.FlagVerbose)
+		err := commands.ListAccounts(term, &flag)
 		if err != nil {
 			term.Error(err)
 		}
@@ -147,8 +118,8 @@ var newAccountCmd = &cobra.Command{
 	Use:   "new",
 	Short: "Create a new account in keystore",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		term := ui.NewTerminal(flagVerbose)
-		err := newAccount(term, cmd, args)
+		term := ui.NewTerminal(flag.FlagVerbose)
+		err := commands.NewAccount(term, &flag)
 		if err != nil {
 			term.Error(err)
 		}
@@ -160,8 +131,8 @@ var importKeyCmd = &cobra.Command{
 	Use:   "import-key",
 	Short: "import hexadecimal private key into keystore",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		term := ui.NewTerminal(flagVerbose)
-		err := importKey(term, cmd, args)
+		term := ui.NewTerminal(flag.FlagVerbose)
+		err := commands.ImportKey(term, flag.KeystorePath)
 		if err != nil {
 			term.Error(err)
 		}
@@ -174,8 +145,8 @@ var signCmd = &cobra.Command{
 	Aliases: []string{"tx"},
 	Short:   "Sign a transaction",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		term := ui.NewTerminal(flagVerbose)
-		err := signTx(term, cmd, args)
+		term := ui.NewTerminal(flag.FlagVerbose)
+		err := commands.SignTx(term, &flag)
 		if err != nil {
 			term.Error(err)
 		}
@@ -188,8 +159,8 @@ var signMsgCmd = &cobra.Command{
 	Aliases: []string{"msg"},
 	Short:   "Sign a message",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		term := ui.NewTerminal(flagVerbose)
-		err := signMsg(term, cmd, args)
+		term := ui.NewTerminal(flag.FlagVerbose)
+		err := commands.SignMsg(term, &flag)
 		if err != nil {
 			term.Error(err)
 		}
@@ -201,8 +172,8 @@ var recoverCmd = &cobra.Command{
 	Use:   "recover",
 	Short: "Recover an address from signature",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		term := ui.NewTerminal(flagVerbose)
-		err := recoverAddress(term, cmd, args)
+		term := ui.NewTerminal(flag.FlagVerbose)
+		err := commands.RecoverAddress(term, &flag)
 		if err != nil {
 			term.Error(err)
 		}
@@ -215,8 +186,8 @@ var hwEncryptCmd = &cobra.Command{
 	Aliases: []string{"hwe"},
 	Short:   "Encrypt on Trezor wallet",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		term := ui.NewTerminal(flagVerbose)
-		err := hwEncrypt(term, cmd, args)
+		term := ui.NewTerminal(flag.FlagVerbose)
+		err := commands.HwEncrypt(term, &flag)
 		if err != nil {
 			term.Error(err)
 		}
@@ -229,8 +200,8 @@ var hwDecryptCmd = &cobra.Command{
 	Aliases: []string{"hwd"},
 	Short:   "Decrypt on Trezor wallet",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		term := ui.NewTerminal(flagVerbose)
-		err := hwDecrypt(term, cmd, args)
+		term := ui.NewTerminal(flag.FlagVerbose)
+		err := commands.HwDecrypt(term, &flag)
 		if err != nil {
 			term.Error(err)
 		}
@@ -251,17 +222,17 @@ func main() {
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error while parsing stdin json: %s\n", err)
 			} else {
-				flagChainID = input.ChainId
-				flagRpcUrl = input.RpcUrl
-				flagNonce = input.TxCount
-				flagFrom = input.From
-				flagTo = input.To
-				flagGasLimit = input.Gas
-				flagGasPrice = input.GasPrice
-				flagGasTip = input.GasTip
-				flagGasFeeCap = input.GasPrice
-				flagValue = input.Value
-				flagInput = input.Data
+				flag.FlagChainID = input.ChainId
+				flag.FlagRpcUrl = input.RpcUrl
+				flag.FlagNonce = input.TxCount
+				flag.FlagFrom = input.From
+				flag.FlagTo = input.To
+				flag.FlagGasLimit = input.Gas
+				flag.FlagGasPrice = input.GasPrice
+				flag.FlagGasTip = input.GasTip
+				flag.FlagGasFeeCap = input.GasPrice
+				flag.FlagValue = input.Value
+				flag.FlagInput = input.Data
 			}
 		}
 	}

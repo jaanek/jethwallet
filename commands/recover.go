@@ -1,4 +1,4 @@
-package main
+package commands
 
 import (
 	"errors"
@@ -8,24 +8,24 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/jaanek/jethwallet/flags"
 	"github.com/jaanek/jethwallet/ui"
-	"github.com/spf13/cobra"
 )
 
-func recoverAddress(term ui.Screen, cmd *cobra.Command, args []string) error {
-	if flagInput == "" {
+func RecoverAddress(term ui.Screen, flag *flags.Flags) error {
+	if flag.FlagInput == "" {
 		return errors.New("Missing --data")
 	}
-	if flagSignature == "" {
+	if flag.FlagSignature == "" {
 		return errors.New("Missing --sig")
 	}
-	signature := hexutil.MustDecode(flagSignature)
-	data := []byte(flagInput)
-	if strings.HasPrefix(flagInput, "0x") {
-		data = hexutil.MustDecode(flagInput)
+	signature := hexutil.MustDecode(flag.FlagSignature)
+	data := []byte(flag.FlagInput)
+	if strings.HasPrefix(flag.FlagInput, "0x") {
+		data = hexutil.MustDecode(flag.FlagInput)
 	}
 	var msg []byte = data
-	if flagAddEthPrefix {
+	if flag.FlagAddEthPrefix {
 		msg = []byte(fmt.Sprintf("\x19Ethereum Signed Message:\n%d%s", len(data), data))
 	}
 

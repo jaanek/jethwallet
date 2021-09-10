@@ -1,18 +1,18 @@
-package main
+package commands
 
 import (
 	"errors"
 
+	"github.com/jaanek/jethwallet/flags"
 	"github.com/jaanek/jethwallet/keystore"
 	"github.com/jaanek/jethwallet/ui"
-	"github.com/spf13/cobra"
 )
 
-func newAccount(term ui.Screen, cmd *cobra.Command, args []string) error {
-	if keystorePath == "" {
+func NewAccount(term ui.Screen, flag *flags.Flags) error {
+	if flag.KeystorePath == "" {
 		return errors.New("Only supports creating new accounts in keystore!")
 	}
-	ks := keystore.NewKeyStore(term, keystorePath)
+	ks := keystore.NewKeyStore(term, flag.KeystorePath)
 	term.Print("*** Enter passphrase (not echoed)...")
 	passphrase, err := term.ReadPassword()
 	if err != nil {

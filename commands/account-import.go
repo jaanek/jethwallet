@@ -1,4 +1,4 @@
-package main
+package commands
 
 import (
 	"errors"
@@ -7,10 +7,9 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/jaanek/jethwallet/keystore"
 	"github.com/jaanek/jethwallet/ui"
-	"github.com/spf13/cobra"
 )
 
-func importKey(term ui.Screen, cmd *cobra.Command, args []string) error {
+func ImportKey(term ui.Screen, keystorePath string) error {
 	if keystorePath == "" {
 		return errors.New("Only supports importing keys to keystore!")
 	}

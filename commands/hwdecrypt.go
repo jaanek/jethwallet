@@ -1,4 +1,4 @@
-package main
+package commands
 
 import (
 	"errors"
@@ -8,41 +8,41 @@ import (
 	"github.com/ethereum/go-ethereum/accounts"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/jaanek/jethwallet/flags"
 	"github.com/jaanek/jethwallet/hwwallet"
 	"github.com/jaanek/jethwallet/ui"
 	"github.com/jaanek/jethwallet/wallet"
-	"github.com/spf13/cobra"
 )
 
-func hwDecrypt(term ui.Screen, cmd *cobra.Command, args []string) error {
-	if flagFrom == "" {
+func HwDecrypt(term ui.Screen, flag *flags.Flags) error {
+	if flag.FlagFrom == "" {
 		return errors.New("Missing --from address")
 	}
-	if flagKey == "" {
+	if flag.FlagKey == "" {
 		return errors.New("Missing --key")
 	}
-	if flagInput == "" {
+	if flag.FlagInput == "" {
 		return errors.New("Missing --data")
 	}
-	fromAddr := common.HexToAddress(flagFrom)
-	key := []byte(flagKey)
-	if strings.HasPrefix(flagKey, "0x") {
-		key = hexutil.MustDecode(flagKey)
+	fromAddr := common.HexToAddress(flag.FlagFrom)
+	key := []byte(flag.FlagKey)
+	if strings.HasPrefix(flag.FlagKey, "0x") {
+		key = hexutil.MustDecode(flag.FlagKey)
 	}
-	data := []byte(flagInput)
-	if strings.HasPrefix(flagInput, "0x") {
-		data = hexutil.MustDecode(flagInput)
+	data := []byte(flag.FlagInput)
+	if strings.HasPrefix(flag.FlagInput, "0x") {
+		data = hexutil.MustDecode(flag.FlagInput)
 	}
 
 	// encrypt data
-	if !useTrezor {
+	if !flag.UseTrezor {
 		return errors.New("Only support for trezor now!")
 	}
-	wallets, err := wallet.GetHWWallets(term, useTrezor, useLedger)
+	wallets, err := wallet.GetHWWallets(term, flag.UseTrezor, flag.UseLedger)
 	if err != nil {
 		return err
 	}
-	hww, acc, _ := hwwallet.FindOneFromWallets(term, wallets, fromAddr, hwwallet.DefaultHDPaths, max)
+	hww, acc, _ := hwwallet.FindOneFromWallets(term, wallets, fromAddr, hwwallet.DefaultHDPaths, flag.Max)
 	if acc == (accounts.Account{}) {
 		return errors.New(fmt.Sprintf("No account found for address: %s\n", fromAddr))
 	}

@@ -1,4 +1,4 @@
-package main
+package commands
 
 import (
 	"encoding/json"
@@ -12,11 +12,11 @@ import (
 	"github.com/ethereum/go-ethereum/common/math"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/params"
+	"github.com/jaanek/jethwallet/flags"
 	"github.com/jaanek/jethwallet/hwwallet"
 	"github.com/jaanek/jethwallet/keystore"
 	"github.com/jaanek/jethwallet/ui"
 	"github.com/jaanek/jethwallet/wallet"
-	"github.com/spf13/cobra"
 )
 
 type Output struct {
@@ -26,63 +26,63 @@ type Output struct {
 	TransactionSig string `json:"txsig"`
 }
 
-func signTx(term ui.Screen, cmd *cobra.Command, args []string) error {
+func SignTx(term ui.Screen, flag *flags.Flags) error {
 	// validate flags
-	if flagNonce == "" {
+	if flag.FlagNonce == "" {
 		return errors.New("Missing --nonce")
 	}
-	if flagFrom == "" {
+	if flag.FlagFrom == "" {
 		return errors.New("Missing --from address")
 	}
 	var to *common.Address
-	if flagTo != "" {
-		t := common.HexToAddress(flagTo)
+	if flag.FlagTo != "" {
+		t := common.HexToAddress(flag.FlagTo)
 		to = &t
 	}
-	if flagGasLimit == "" {
+	if flag.FlagGasLimit == "" {
 		return errors.New("Missing --gas-limit")
 	}
-	nonce := math.MustParseUint64(flagNonce)
-	fromAddr := common.HexToAddress(flagFrom)
-	gasLimit := math.MustParseUint64(flagGasLimit)
+	nonce := math.MustParseUint64(flag.FlagNonce)
+	fromAddr := common.HexToAddress(flag.FlagFrom)
+	gasLimit := math.MustParseUint64(flag.FlagGasLimit)
 	var gasPrice, gasTipCap, gasFeeCap *big.Int
-	if flagGasPrice != "" {
-		gasPrice = math.MustParseBig256(flagGasPrice)
+	if flag.FlagGasPrice != "" {
+		gasPrice = math.MustParseBig256(flag.FlagGasPrice)
 	}
-	if flagGasTip != "" {
-		gasTipCap = math.MustParseBig256(flagGasTip)
+	if flag.FlagGasTip != "" {
+		gasTipCap = math.MustParseBig256(flag.FlagGasTip)
 	}
-	if flagGasFeeCap != "" {
-		gasFeeCap = math.MustParseBig256(flagGasFeeCap)
+	if flag.FlagGasFeeCap != "" {
+		gasFeeCap = math.MustParseBig256(flag.FlagGasFeeCap)
 	}
 	if gasPrice == nil && (gasTipCap == nil || gasFeeCap == nil) {
 		return errors.New("Either --gas-price or (--gas-tip and --gas-maxfee) must be provided")
 	}
 	var value *big.Int
-	if flagValue != "" {
+	if flag.FlagValue != "" {
 		var ok bool
-		value, ok = math.ParseBig256(flagValue)
+		value, ok = math.ParseBig256(flag.FlagValue)
 		if !ok {
-			return errors.New(fmt.Sprintf("invalid 256 bit integer: " + flagValue))
+			return errors.New(fmt.Sprintf("invalid 256 bit integer: " + flag.FlagValue))
 		}
-		if flagValueEth {
+		if flag.FlagValueEth {
 			value = new(big.Int).Mul(value, new(big.Int).SetInt64(params.Ether))
-		} else if flagValueGwei {
+		} else if flag.FlagValueGwei {
 			value = new(big.Int).Mul(value, new(big.Int).SetInt64(params.GWei))
 		}
 	} else {
 		value = new(big.Int)
 	}
-	if flagChainID == "" {
+	if flag.FlagChainID == "" {
 		return errors.New("Missing --chain-id")
 	}
-	chainID := math.MustParseBig256(flagChainID)
-	if to == nil && flagInput == "" {
+	chainID := math.MustParseBig256(flag.FlagChainID)
+	if to == nil && flag.FlagInput == "" {
 		return errors.New("Either --to or --input must be provided")
 	}
 	var input = []byte{}
-	if flagInput != "" {
-		input = hexutil.MustDecode(flagInput)
+	if flag.FlagInput != "" {
+		input = hexutil.MustDecode(flag.FlagInput)
 	}
 
 	// Create the transaction to sign
@@ -124,12 +124,12 @@ func signTx(term ui.Screen, cmd *cobra.Command, args []string) error {
 	var (
 		signed *types.Transaction
 	)
-	if useTrezor || useLedger {
-		wallets, err := wallet.GetHWWallets(term, useTrezor, useLedger)
+	if flag.UseTrezor || flag.UseLedger {
+		wallets, err := wallet.GetHWWallets(term, flag.UseTrezor, flag.UseLedger)
 		if err != nil {
 			return err
 		}
-		hww, acc, _ := hwwallet.FindOneFromWallets(term, wallets, fromAddr, hwwallet.DefaultHDPaths, max)
+		hww, acc, _ := hwwallet.FindOneFromWallets(term, wallets, fromAddr, hwwallet.DefaultHDPaths, flag.Max)
 		if acc == (accounts.Account{}) {
 			return errors.New(fmt.Sprintf("No account found for address: %s\n", fromAddr))
 		}
@@ -146,8 +146,8 @@ func signTx(term ui.Screen, cmd *cobra.Command, args []string) error {
 		if addr != acc.Address {
 			return errors.New("Signed tx sender address != provided derivation path address!")
 		}
-	} else if keystorePath != "" {
-		ks := keystore.NewKeyStore(term, keystorePath)
+	} else if flag.KeystorePath != "" {
+		ks := keystore.NewKeyStore(term, flag.KeystorePath)
 
 		// find the account by address
 		acc, err := ks.FindOne(fromAddr)
@@ -179,8 +179,8 @@ func signTx(term ui.Screen, cmd *cobra.Command, args []string) error {
 	v, r, s := signed.RawSignatureValues()
 	txSig := fmt.Sprintf("0x%064x%064x%02x", r, s, v)
 	out := Output{
-		RpcUrl:         flagRpcUrl,
-		ChainId:        flagChainID,
+		RpcUrl:         flag.FlagRpcUrl,
+		ChainId:        flag.FlagChainID,
 		RawTransaction: encodedRawTx,
 		TransactionSig: txSig,
 	}
