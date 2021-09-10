@@ -10,14 +10,15 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/ethereum/go-ethereum/accounts"
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/golang/protobuf/proto"
+	"github.com/holiman/uint256"
+	"github.com/jaanek/jethwallet/accounts"
 	"github.com/jaanek/jethwallet/hwwallet"
 	"github.com/jaanek/jethwallet/trezor/trezorproto"
 	"github.com/jaanek/jethwallet/ui"
 	"github.com/karalabe/usb"
+	"github.com/ledgerwatch/erigon/common"
+	"github.com/ledgerwatch/erigon/core/types"
 )
 
 const (
@@ -201,20 +202,20 @@ func (w *trezorWallet) SignMessage(path accounts.DerivationPath, msg []byte) (co
 
 // SignTx sends the transaction to the Trezor and
 // waits for the user to confirm or deny the transaction.
-func (w *trezorWallet) SignTx(path accounts.DerivationPath, tx *types.Transaction, chainID big.Int) (common.Address, *types.Transaction, error) {
+func (w *trezorWallet) SignTx(path accounts.DerivationPath, tx types.Transaction, chainID *uint256.Int) (common.Address, types.Transaction, error) {
 	if w.device == nil {
 		return common.Address{}, nil, accounts.ErrWalletClosed
 	}
-	chainId := uint32(chainID.Int64()) // EIP-155 transaction, set chain ID explicitly (only 32 bit is supported!?)
+	chainId := uint32(chainID.ToBig().Int64()) // EIP-155 transaction, set chain ID explicitly (only 32 bit is supported!?)
 	var toAddr *string
-	if to := tx.To(); to != nil {
+	if to := tx.GetTo(); to != nil {
 		// Non contract deploy, set recipient explicitly
 		hex := to.Hex()
 		toAddr = &hex
 	}
 
 	// data chunk setup
-	data := tx.Data()
+	data := tx.GetData()
 	length := uint32(len(data))
 	var dataInitialChunk []byte
 	if length > 1024 { // Send the data chunked if that was requested
@@ -230,10 +231,10 @@ func (w *trezorWallet) SignTx(path accounts.DerivationPath, tx *types.Transactio
 		var request = &trezorproto.EthereumSignTx{
 			AddressN:         []uint32(path),
 			To:               toAddr,
-			Nonce:            new(big.Int).SetUint64(tx.Nonce()).Bytes(),
-			GasPrice:         tx.GasPrice().Bytes(),
-			GasLimit:         new(big.Int).SetUint64(tx.Gas()).Bytes(),
-			Value:            tx.Value().Bytes(),
+			Nonce:            new(big.Int).SetUint64(tx.GetNonce()).Bytes(),
+			GasPrice:         tx.GetPrice().Bytes(),
+			GasLimit:         new(big.Int).SetUint64(tx.GetGas()).Bytes(),
+			Value:            tx.GetValue().Bytes(),
 			DataInitialChunk: dataInitialChunk,
 			DataLength:       &length,
 			ChainId:          &chainId,
@@ -243,11 +244,11 @@ func (w *trezorWallet) SignTx(path accounts.DerivationPath, tx *types.Transactio
 		var request = &trezorproto.EthereumSignTxEIP1559{
 			AddressN:         []uint32(path),
 			To:               toAddr,
-			Nonce:            new(big.Int).SetUint64(tx.Nonce()).Bytes(),
-			MaxGasFee:        tx.GasFeeCap().Bytes(),
-			MaxPriorityFee:   tx.GasTipCap().Bytes(),
-			GasLimit:         new(big.Int).SetUint64(tx.Gas()).Bytes(),
-			Value:            tx.Value().Bytes(),
+			Nonce:            new(big.Int).SetUint64(tx.GetNonce()).Bytes(),
+			MaxGasFee:        tx.GetFeeCap().Bytes(),
+			MaxPriorityFee:   tx.GetTip().Bytes(),
+			GasLimit:         new(big.Int).SetUint64(tx.GetGas()).Bytes(),
+			Value:            tx.GetValue().Bytes(),
 			DataInitialChunk: dataInitialChunk,
 			DataLength:       &length,
 			ChainId:          &chainId,
@@ -260,7 +261,7 @@ func (w *trezorWallet) SignTx(path accounts.DerivationPath, tx *types.Transactio
 	return w.sendTx(req, tx, chainID, data)
 }
 
-func (w *trezorWallet) sendTx(req proto.Message, tx *types.Transaction, chainID big.Int, data []byte) (common.Address, *types.Transaction, error) {
+func (w *trezorWallet) sendTx(req proto.Message, tx types.Transaction, chainID *uint256.Int, data []byte) (common.Address, types.Transaction, error) {
 	response := new(trezorproto.EthereumTxRequest)
 	if err := w.Call(req, response); err != nil {
 		return common.Address{}, nil, err
@@ -281,15 +282,17 @@ func (w *trezorWallet) sendTx(req proto.Message, tx *types.Transaction, chainID 
 	signature := append(append(response.GetSignatureR(), response.GetSignatureS()...), byte(response.GetSignatureV()))
 
 	// Create the correct signer and signature transform based on the chain ID
-	signer := types.NewLondonSigner(&chainID)
+	// signer := types.NewLondonSigner(&chainID)
+	signer := types.LatestSignerForChainID(chainID.ToBig())
 	signature[64] -= byte(chainID.Uint64()*2 + 35)
 
 	// Inject the final signature into the transaction and sanity check the sender
-	signed, err := tx.WithSignature(signer, signature)
+	signed, err := tx.WithSignature(*signer, signature)
 	if err != nil {
 		return common.Address{}, nil, err
 	}
-	sender, err := types.Sender(signer, signed)
+	// sender, err := types.Sender(signer, signed)
+	sender, err := signed.Sender(*signer)
 	if err != nil {
 		return common.Address{}, nil, err
 	}

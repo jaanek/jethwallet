@@ -8,14 +8,15 @@ import (
 	"io"
 	"math/big"
 
-	"github.com/ethereum/go-ethereum/accounts"
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/ethereum/go-ethereum/rlp"
+	"github.com/holiman/uint256"
+	"github.com/jaanek/jethwallet/accounts"
 	"github.com/jaanek/jethwallet/hwwallet"
 	"github.com/jaanek/jethwallet/ui"
 	"github.com/karalabe/usb"
+	"github.com/ledgerwatch/erigon/common"
+	"github.com/ledgerwatch/erigon/core/types"
+	"github.com/ledgerwatch/erigon/crypto"
+	"github.com/ledgerwatch/erigon/rlp"
 )
 
 const (
@@ -262,7 +263,7 @@ func (w *ledgerWallet) SignMessage(path accounts.DerivationPath, msg []byte) (co
 //   signature V | 1 byte
 //   signature R | 32 bytes
 //   signature S | 32 bytes
-func (w *ledgerWallet) SignTx(derivationPath accounts.DerivationPath, tx *types.Transaction, chainID big.Int) (common.Address, *types.Transaction, error) {
+func (w *ledgerWallet) SignTx(derivationPath accounts.DerivationPath, tx types.Transaction, chainID *uint256.Int) (common.Address, types.Transaction, error) {
 	// If the Ethereum app doesn't run, abort
 	if w.offline() {
 		return common.Address{}, nil, accounts.ErrWalletClosed
@@ -285,7 +286,13 @@ func (w *ledgerWallet) SignTx(derivationPath accounts.DerivationPath, tx *types.
 		txrlp []byte
 		err   error
 	)
-	if txrlp, err = rlp.EncodeToBytes([]interface{}{tx.Nonce(), tx.GasPrice(), tx.Gas(), tx.To(), tx.Value(), tx.Data(), chainID, big.NewInt(0), big.NewInt(0)}); err != nil {
+	// var encoded bytes.Buffer
+	// err = signed.MarshalBinary(&encoded)
+	// if err != nil {
+	// 	return err
+	// }
+	// if txrlp, err = rlp.EncodeToBytes([]interface{}{tx.Nonce(), tx.GasPrice(), tx.Gas(), tx.To(), tx.Value(), tx.Data(), chainID, big.NewInt(0), big.NewInt(0)}); err != nil {
+	if txrlp, err = rlp.EncodeToBytes([]interface{}{tx.GetNonce(), tx.GetPrice(), tx.GetGas(), tx.GetTo(), tx.GetValue(), tx.GetData(), chainID.ToBig(), big.NewInt(0), big.NewInt(0)}); err != nil {
 		return common.Address{}, nil, err
 	}
 	payload := append(path, txrlp...)
@@ -317,14 +324,15 @@ func (w *ledgerWallet) SignTx(derivationPath accounts.DerivationPath, tx *types.
 	signature := append(reply[1:], reply[0])
 
 	// Create the correct signer and signature transform based on the chain ID
-	signer := types.NewLondonSigner(&chainID)
+	// signer := types.NewLondonSigner(&chainID)
+	signer := types.LatestSignerForChainID(chainID.ToBig())
 	signature[64] -= byte(chainID.Uint64()*2 + 35)
 
-	signed, err := tx.WithSignature(signer, signature)
+	signed, err := tx.WithSignature(*signer, signature)
 	if err != nil {
 		return common.Address{}, nil, err
 	}
-	sender, err := types.Sender(signer, signed)
+	sender, err := signed.Sender(*signer)
 	if err != nil {
 		return common.Address{}, nil, err
 	}

@@ -8,17 +8,16 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
-	"math/big"
 	"os"
 	"path/filepath"
 	"strings"
 
-	"github.com/ethereum/go-ethereum/accounts"
-	"github.com/ethereum/go-ethereum/accounts/keystore"
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/holiman/uint256"
+	"github.com/jaanek/jethwallet/accounts"
 	"github.com/jaanek/jethwallet/ui"
+	"github.com/ledgerwatch/erigon/common"
+	"github.com/ledgerwatch/erigon/core/types"
+	"github.com/ledgerwatch/erigon/crypto"
 )
 
 var (
@@ -42,7 +41,8 @@ type KeyStore struct {
 
 // NewKeyStore creates a keystore for the given directory.
 func NewKeyStore(ui ui.Screen, keydir string) *KeyStore {
-	scryptN, scryptP := keystore.StandardScryptN, keystore.StandardScryptP
+	// scryptN, scryptP := keystore.StandardScryptN, keystore.StandardScryptP
+	scryptN, scryptP := StandardScryptN, StandardScryptP
 	keydir, _ = filepath.Abs(keydir)
 	ks := &KeyStore{
 		ui:      ui,
@@ -89,10 +89,10 @@ func (ks *KeyStore) SignHash(key *ecdsa.PrivateKey, hash []byte) ([]byte, error)
 }
 
 // SignTx signs the given transaction with the requested address.
-func (ks *KeyStore) SignTx(key *ecdsa.PrivateKey, tx *types.Transaction, chainID *big.Int) (*types.Transaction, error) {
+func (ks *KeyStore) SignTx(key *ecdsa.PrivateKey, tx types.Transaction, chainID *uint256.Int) (types.Transaction, error) {
 	// Depending on the presence of the chain ID, sign with 2718 or homestead
-	signer := types.LatestSignerForChainID(chainID)
-	return types.SignTx(tx, signer, key)
+	signer := types.LatestSignerForChainID(chainID.ToBig())
+	return types.SignTx(tx, *signer, key)
 }
 
 // NewAccount generates a new key and stores it into the key directory,

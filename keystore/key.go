@@ -29,9 +29,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ethereum/go-ethereum/accounts"
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/jaanek/jethwallet/accounts"
+	// "github.com/ethereum/go-ethereum/common"
+	"github.com/ledgerwatch/erigon/common"
+	"github.com/ledgerwatch/erigon/crypto"
+
+	// "github.com/ethereum/go-ethereum/crypto"
 	"github.com/google/uuid"
 )
 

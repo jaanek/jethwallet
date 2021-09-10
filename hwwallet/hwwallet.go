@@ -3,12 +3,12 @@ package hwwallet
 import (
 	"errors"
 	"fmt"
-	"math/big"
 
-	"github.com/ethereum/go-ethereum/accounts"
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/holiman/uint256"
+	"github.com/jaanek/jethwallet/accounts"
 	"github.com/jaanek/jethwallet/ui"
+	"github.com/ledgerwatch/erigon/common"
+	"github.com/ledgerwatch/erigon/core/types"
 )
 
 var (
@@ -23,7 +23,7 @@ type HWWallet interface {
 	Status() string
 	Label() string
 	Derive(path accounts.DerivationPath) (common.Address, error)
-	SignTx(path accounts.DerivationPath, tx *types.Transaction, chainID big.Int) (common.Address, *types.Transaction, error)
+	SignTx(path accounts.DerivationPath, tx types.Transaction, chainID *uint256.Int) (common.Address, types.Transaction, error)
 	SignMessage(path accounts.DerivationPath, msg []byte) (common.Address, []byte, error)
 	Encrypt(path accounts.DerivationPath, key string, data []byte, askOnEncrypt, askOnDecrypt bool) ([]byte, error)
 	Decrypt(path accounts.DerivationPath, key string, data []byte, askOnEncrypt, askOnDecrypt bool) ([]byte, error)

@@ -4,9 +4,9 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/jaanek/jethwallet/keystore"
 	"github.com/jaanek/jethwallet/ui"
+	"github.com/ledgerwatch/erigon/crypto"
 )
 
 func ImportKey(term ui.Screen, keystorePath string) error {

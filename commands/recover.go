@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/common/hexutil"
-	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/jaanek/jethwallet/flags"
 	"github.com/jaanek/jethwallet/ui"
+	"github.com/ledgerwatch/erigon/common"
+	"github.com/ledgerwatch/erigon/common/hexutil"
+	"github.com/ledgerwatch/erigon/crypto"
 )
 
 func RecoverAddress(term ui.Screen, flag *flags.Flags) error {

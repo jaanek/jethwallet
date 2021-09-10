@@ -1,22 +1,23 @@
 package commands
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math/big"
 
-	"github.com/ethereum/go-ethereum/accounts"
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/common/hexutil"
-	"github.com/ethereum/go-ethereum/common/math"
-	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/params"
+	"github.com/holiman/uint256"
+	"github.com/jaanek/jethwallet/accounts"
 	"github.com/jaanek/jethwallet/flags"
 	"github.com/jaanek/jethwallet/hwwallet"
 	"github.com/jaanek/jethwallet/keystore"
 	"github.com/jaanek/jethwallet/ui"
 	"github.com/jaanek/jethwallet/wallet"
+	"github.com/ledgerwatch/erigon/common"
+	"github.com/ledgerwatch/erigon/common/hexutil"
+	"github.com/ledgerwatch/erigon/common/math"
+	"github.com/ledgerwatch/erigon/core/types"
+	"github.com/ledgerwatch/erigon/params"
 )
 
 type Output struct {
@@ -45,38 +46,53 @@ func SignTx(term ui.Screen, flag *flags.Flags) error {
 	nonce := math.MustParseUint64(flag.FlagNonce)
 	fromAddr := common.HexToAddress(flag.FlagFrom)
 	gasLimit := math.MustParseUint64(flag.FlagGasLimit)
-	var gasPrice, gasTipCap, gasFeeCap *big.Int
+	var gasPrice, gasTipCap, gasFeeCap *uint256.Int
 	if flag.FlagGasPrice != "" {
-		gasPrice = math.MustParseBig256(flag.FlagGasPrice)
+		var err error
+		gasPrice, err = uint256.FromHex(flag.FlagGasPrice)
+		if err != nil {
+			return err
+		}
 	}
 	if flag.FlagGasTip != "" {
-		gasTipCap = math.MustParseBig256(flag.FlagGasTip)
+		var err error
+		gasTipCap, err = uint256.FromHex(flag.FlagGasTip)
+		if err != nil {
+			return err
+		}
 	}
 	if flag.FlagGasFeeCap != "" {
-		gasFeeCap = math.MustParseBig256(flag.FlagGasFeeCap)
+		var err error
+		gasFeeCap, err = uint256.FromHex(flag.FlagGasFeeCap)
+		if err != nil {
+			return err
+		}
 	}
 	if gasPrice == nil && (gasTipCap == nil || gasFeeCap == nil) {
 		return errors.New("Either --gas-price or (--gas-tip and --gas-maxfee) must be provided")
 	}
-	var value *big.Int
+	var value *uint256.Int
 	if flag.FlagValue != "" {
-		var ok bool
-		value, ok = math.ParseBig256(flag.FlagValue)
-		if !ok {
+		var err error
+		value, err = uint256.FromHex(flag.FlagValue)
+		if err != nil {
 			return errors.New(fmt.Sprintf("invalid 256 bit integer: " + flag.FlagValue))
 		}
 		if flag.FlagValueEth {
-			value = new(big.Int).Mul(value, new(big.Int).SetInt64(params.Ether))
+			value = new(uint256.Int).Mul(value, new(uint256.Int).SetUint64(params.Ether))
 		} else if flag.FlagValueGwei {
-			value = new(big.Int).Mul(value, new(big.Int).SetInt64(params.GWei))
+			value = new(uint256.Int).Mul(value, new(uint256.Int).SetUint64(params.GWei))
 		}
 	} else {
-		value = new(big.Int)
+		value = new(uint256.Int)
 	}
 	if flag.FlagChainID == "" {
 		return errors.New("Missing --chain-id")
 	}
-	chainID := math.MustParseBig256(flag.FlagChainID)
+	chainID, err := uint256.FromHex(flag.FlagChainID)
+	if err != nil {
+		return err
+	}
 	if to == nil && flag.FlagInput == "" {
 		return errors.New("Either --to or --input must be provided")
 	}
@@ -86,43 +102,47 @@ func SignTx(term ui.Screen, flag *flags.Flags) error {
 	}
 
 	// Create the transaction to sign
-	var rawTx *types.Transaction
+	var rawTx types.Transaction
 	if gasTipCap != nil {
 		if gasFeeCap == nil {
 			gasFeeCap = gasPrice
 		}
-		baseTx := &types.DynamicFeeTx{
-			ChainID:   chainID,
-			Nonce:     nonce,
-			GasTipCap: gasTipCap,
-			GasFeeCap: gasFeeCap,
-			Gas:       gasLimit,
-			Value:     value,
-			Data:      input,
+		tx := &types.DynamicFeeTransaction{
+			CommonTx: types.CommonTx{
+				Nonce: nonce,
+				Data:  input,
+				Gas:   gasLimit,
+				Value: value,
+			},
+			ChainID: chainID,
+			Tip:     gasTipCap,
+			FeeCap:  gasFeeCap,
 		}
 		if to != nil {
-			baseTx.To = to
+			tx.To = to
 		}
-		rawTx = types.NewTx(baseTx)
+		rawTx = tx
 	} else if gasPrice != nil {
-		baseTx := &types.LegacyTx{
-			Nonce:    nonce,
+		tx := &types.LegacyTx{
+			CommonTx: types.CommonTx{
+				Nonce: nonce,
+				Data:  input,
+				Gas:   gasLimit,
+				Value: value,
+			},
 			GasPrice: gasPrice,
-			Gas:      gasLimit,
-			Value:    value,
-			Data:     input,
 		}
 		if to != nil {
-			baseTx.To = to
+			tx.To = to
 		}
-		rawTx = types.NewTx(baseTx)
+		rawTx = tx
 	} else {
 		return errors.New("No --gas-price nor --gas-tip found in args")
 	}
 
 	// sign tx
 	var (
-		signed *types.Transaction
+		signed types.Transaction
 	)
 	if flag.UseTrezor || flag.UseLedger {
 		wallets, err := wallet.GetHWWallets(term, flag.UseTrezor, flag.UseLedger)
@@ -139,7 +159,7 @@ func SignTx(term ui.Screen, flag *flags.Flags) error {
 			return err
 		}
 		var addr common.Address
-		addr, signed, err = hww.SignTx(path, rawTx, *chainID)
+		addr, signed, err = hww.SignTx(path, rawTx, chainID)
 		if err != nil {
 			return err
 		}
@@ -171,11 +191,12 @@ func SignTx(term ui.Screen, flag *flags.Flags) error {
 	}
 
 	// output
-	encoded, err := signed.MarshalBinary()
+	var encoded bytes.Buffer
+	err = signed.MarshalBinary(&encoded)
 	if err != nil {
 		return err
 	}
-	encodedRawTx := hexutil.Encode(encoded[:])
+	encodedRawTx := hexutil.Encode(encoded.Bytes()[:])
 	v, r, s := signed.RawSignatureValues()
 	txSig := fmt.Sprintf("0x%064x%064x%02x", r, s, v)
 	out := Output{
