@@ -116,6 +116,7 @@ func init() {
 
 	rootCmd.AddCommand(listAccountsCmd)
 	rootCmd.AddCommand(newAccountCmd)
+	rootCmd.AddCommand(importKeyCmd)
 	rootCmd.AddCommand(signCmd)
 	rootCmd.AddCommand(signMsgCmd)
 	rootCmd.AddCommand(recoverCmd)
@@ -148,6 +149,19 @@ var newAccountCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		term := ui.NewTerminal(flagVerbose)
 		err := newAccount(term, cmd, args)
+		if err != nil {
+			term.Error(err)
+		}
+		return nil
+	},
+}
+
+var importKeyCmd = &cobra.Command{
+	Use:   "import-key",
+	Short: "import hexadecimal private key into keystore",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		term := ui.NewTerminal(flagVerbose)
+		err := importKey(term, cmd, args)
 		if err != nil {
 			term.Error(err)
 		}
