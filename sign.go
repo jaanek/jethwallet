@@ -101,7 +101,7 @@ func SignTx(term ui.Screen, flag *flags.Flags) error {
 	}
 
 	// Create the transaction to sign
-	tx, err := wallet.NewTransaction(*chainID, nonce, to, value, input, gasLimit, gasPrice, gasTipCap, gasFeeCap)
+	tx, err := wallet.NewTx(*chainID, nonce, to, value, input, gasLimit, gasPrice, gasTipCap, gasFeeCap)
 
 	// sign tx
 	var signed types.Transaction

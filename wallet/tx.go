@@ -18,7 +18,7 @@ func (tx WrappedLegacyTx) GetChainID() *uint256.Int {
 	return tx.ChainID
 }
 
-func NewTransaction(chainID uint256.Int, nonce uint64, to *common.Address, value *uint256.Int, input []byte, gasLimit uint64, gasPrice, gasTip, gasFeeCap *uint256.Int) (types.Transaction, error) {
+func NewTx(chainID uint256.Int, nonce uint64, to *common.Address, value *uint256.Int, input []byte, gasLimit uint64, gasPrice, gasTip, gasFeeCap *uint256.Int) (types.Transaction, error) {
 	var rawTx types.Transaction
 	if gasTip != nil {
 		if gasFeeCap == nil {

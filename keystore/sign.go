@@ -33,3 +33,24 @@ func SignTx(term ui.Screen, keystorePath string, fromAddr common.Address, tx typ
 	}
 	return signed, nil
 }
+
+func SignTxWithPassphrase(term ui.Screen, keystorePath string, fromAddr common.Address, tx types.Transaction, passphrase string) (types.Transaction, error) {
+	var signed types.Transaction
+	ks := NewKeyStore(term, keystorePath)
+
+	// find the account by address
+	acc, err := ks.FindOne(fromAddr)
+	if err != nil {
+		return nil, err
+	}
+	key, err := ks.GetDecryptedKey(acc, passphrase)
+	if err != nil {
+		return nil, err
+	}
+	defer ZeroKey(key.PrivateKey)
+	signed, err = ks.SignTx(key.PrivateKey, tx, tx.GetChainID())
+	if err != nil {
+		return nil, err
+	}
+	return signed, nil
+}
