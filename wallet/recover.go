@@ -1,42 +1,12 @@
-package commands
+package wallet
 
 import (
-	"errors"
 	"fmt"
-	"strings"
 
-	"github.com/jaanek/jethwallet/flags"
-	"github.com/jaanek/jethwallet/ui"
 	"github.com/ledgerwatch/erigon/common"
 	"github.com/ledgerwatch/erigon/common/hexutil"
 	"github.com/ledgerwatch/erigon/crypto"
 )
-
-func RecoverAddress(term ui.Screen, flag *flags.Flags) error {
-	if flag.FlagInput == "" {
-		return errors.New("Missing --data")
-	}
-	if flag.FlagSignature == "" {
-		return errors.New("Missing --sig")
-	}
-	signature := hexutil.MustDecode(flag.FlagSignature)
-	data := []byte(flag.FlagInput)
-	if strings.HasPrefix(flag.FlagInput, "0x") {
-		data = hexutil.MustDecode(flag.FlagInput)
-	}
-	var msg []byte = data
-	if flag.FlagAddEthPrefix {
-		msg = []byte(fmt.Sprintf("\x19Ethereum Signed Message:\n%d%s", len(data), data))
-	}
-
-	// recover address from signature
-	addr, err := EcRecover(msg, signature)
-	if err != nil {
-		return err
-	}
-	term.Output(hexutil.Encode(addr[:]))
-	return nil
-}
 
 // https://github.com/ethereum/go-ethereum/blob/55599ee95d4151a2502465e0afc7c47bd1acba77/internal/ethapi/api.go#L442
 func EcRecover(data []byte, sig hexutil.Bytes) (common.Address, error) {
@@ -53,4 +23,8 @@ func EcRecover(data []byte, sig hexutil.Bytes) (common.Address, error) {
 		return common.Address{}, err
 	}
 	return crypto.PubkeyToAddress(*rpk), nil
+}
+
+func MessageWithEthPrefix(data []byte) []byte {
+	return []byte(fmt.Sprintf("\x19Ethereum Signed Message:\n%d%s", len(data), data))
 }

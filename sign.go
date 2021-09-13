@@ -1,4 +1,4 @@
-package commands
+package main
 
 import (
 	"bytes"
@@ -7,9 +7,9 @@ import (
 	"fmt"
 
 	"github.com/holiman/uint256"
-	"github.com/jaanek/jethwallet/accounts"
 	"github.com/jaanek/jethwallet/flags"
 	"github.com/jaanek/jethwallet/hwwallet"
+	"github.com/jaanek/jethwallet/hwwallet/hwcommon"
 	"github.com/jaanek/jethwallet/keystore"
 	"github.com/jaanek/jethwallet/ui"
 	"github.com/jaanek/jethwallet/wallet"
@@ -102,92 +102,15 @@ func SignTx(term ui.Screen, flag *flags.Flags) error {
 	}
 
 	// Create the transaction to sign
-	var rawTx types.Transaction
-	if gasTipCap != nil {
-		if gasFeeCap == nil {
-			gasFeeCap = gasPrice
-		}
-		tx := &types.DynamicFeeTransaction{
-			CommonTx: types.CommonTx{
-				Nonce: nonce,
-				Data:  input,
-				Gas:   gasLimit,
-				Value: value,
-			},
-			ChainID: chainID,
-			Tip:     gasTipCap,
-			FeeCap:  gasFeeCap,
-		}
-		if to != nil {
-			tx.To = to
-		}
-		rawTx = tx
-	} else if gasPrice != nil {
-		tx := &types.LegacyTx{
-			CommonTx: types.CommonTx{
-				Nonce: nonce,
-				Data:  input,
-				Gas:   gasLimit,
-				Value: value,
-			},
-			GasPrice: gasPrice,
-		}
-		if to != nil {
-			tx.To = to
-		}
-		rawTx = tx
-	} else {
-		return errors.New("No --gas-price nor --gas-tip found in args")
-	}
+	tx, err := wallet.NewTransaction(*chainID, nonce, to, value, input, gasLimit, gasPrice, gasTipCap, gasFeeCap)
 
 	// sign tx
-	var (
-		signed types.Transaction
-	)
-	if flag.UseTrezor || flag.UseLedger {
-		wallets, err := wallet.GetHWWallets(term, flag.UseTrezor, flag.UseLedger)
-		if err != nil {
-			return err
-		}
-		hww, acc, _ := hwwallet.FindOneFromWallets(term, wallets, fromAddr, hwwallet.DefaultHDPaths, flag.Max)
-		if acc == (accounts.Account{}) {
-			return errors.New(fmt.Sprintf("No account found for address: %s\n", fromAddr))
-		}
-		term.Logf("Found account: %v, path: %s ...\n", acc.Address, acc.URL.Path)
-		path, err := accounts.ParseDerivationPath(acc.URL.Path)
-		if err != nil {
-			return err
-		}
-		var addr common.Address
-		addr, signed, err = hww.SignTx(path, rawTx, chainID)
-		if err != nil {
-			return err
-		}
-		if addr != acc.Address {
-			return errors.New("Signed tx sender address != provided derivation path address!")
-		}
-	} else if flag.KeystorePath != "" {
-		ks := keystore.NewKeyStore(term, flag.KeystorePath)
-
-		// find the account by address
-		acc, err := ks.FindOne(fromAddr)
-		if err != nil {
-			return err
-		}
-		term.Print(fmt.Sprintf("*** Enter passphrase (not echoed) account: %v ...", acc.Address))
-		passphrase, err := term.ReadPassword()
-		if err != nil {
-			return err
-		}
-		key, err := ks.GetDecryptedKey(acc, string(passphrase))
-		if err != nil {
-			return err
-		}
-		defer keystore.ZeroKey(key.PrivateKey)
-		signed, err = ks.SignTx(key.PrivateKey, rawTx, chainID)
-		if err != nil {
-			return err
-		}
+	var signed types.Transaction
+	if flag.KeystorePath != "" {
+		signed, err = keystore.SignTx(term, flag.KeystorePath, fromAddr, tx)
+	} else {
+		hwWalletType := hwcommon.GetWalletTypeFromFlags(flag)
+		signed, err = hwwallet.SignTx(term, hwWalletType, fromAddr, tx, flag.Max)
 	}
 
 	// output

@@ -11,8 +11,10 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/jaanek/jethwallet/commands"
 	"github.com/jaanek/jethwallet/flags"
+	"github.com/jaanek/jethwallet/hwwallet"
+	"github.com/jaanek/jethwallet/hwwallet/hwcommon"
+	"github.com/jaanek/jethwallet/keystore"
 	"github.com/jaanek/jethwallet/ui"
 	"github.com/spf13/cobra"
 )
@@ -106,7 +108,13 @@ var listAccountsCmd = &cobra.Command{
 	Short:   "List accounts",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		term := ui.NewTerminal(flag.FlagVerbose)
-		err := commands.ListAccounts(term, &flag)
+		var err error
+		if flag.KeystorePath != "" {
+			err = keystore.ListAccounts(term, flag.KeystorePath, flag.FlagVerbose)
+		} else {
+			walletType := hwcommon.GetWalletTypeFromFlags(&flag)
+			err = hwwallet.ListAccounts(term, walletType, flag.Hdpath, flag.Max, flag.FlagVerbose)
+		}
 		if err != nil {
 			term.Error(err)
 		}
@@ -119,7 +127,7 @@ var newAccountCmd = &cobra.Command{
 	Short: "Create a new account in keystore",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		term := ui.NewTerminal(flag.FlagVerbose)
-		err := commands.NewAccount(term, &flag)
+		err := keystore.NewAccount(term, flag.KeystorePath)
 		if err != nil {
 			term.Error(err)
 		}
@@ -132,7 +140,7 @@ var importKeyCmd = &cobra.Command{
 	Short: "import hexadecimal private key into keystore",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		term := ui.NewTerminal(flag.FlagVerbose)
-		err := commands.ImportKey(term, flag.KeystorePath)
+		err := keystore.ImportKey(term, flag.KeystorePath)
 		if err != nil {
 			term.Error(err)
 		}
@@ -146,7 +154,7 @@ var signCmd = &cobra.Command{
 	Short:   "Sign a transaction",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		term := ui.NewTerminal(flag.FlagVerbose)
-		err := commands.SignTx(term, &flag)
+		err := SignTx(term, &flag)
 		if err != nil {
 			term.Error(err)
 		}
@@ -160,7 +168,7 @@ var signMsgCmd = &cobra.Command{
 	Short:   "Sign a message",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		term := ui.NewTerminal(flag.FlagVerbose)
-		err := commands.SignMsg(term, &flag)
+		err := SignMsg(term, &flag)
 		if err != nil {
 			term.Error(err)
 		}
@@ -173,7 +181,7 @@ var recoverCmd = &cobra.Command{
 	Short: "Recover an address from signature",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		term := ui.NewTerminal(flag.FlagVerbose)
-		err := commands.RecoverAddress(term, &flag)
+		err := RecoverAddress(term, &flag)
 		if err != nil {
 			term.Error(err)
 		}
@@ -187,7 +195,7 @@ var hwEncryptCmd = &cobra.Command{
 	Short:   "Encrypt on Trezor wallet",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		term := ui.NewTerminal(flag.FlagVerbose)
-		err := commands.HwEncrypt(term, &flag)
+		err := HwEncrypt(term, &flag)
 		if err != nil {
 			term.Error(err)
 		}
@@ -201,7 +209,7 @@ var hwDecryptCmd = &cobra.Command{
 	Short:   "Decrypt on Trezor wallet",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		term := ui.NewTerminal(flag.FlagVerbose)
-		err := commands.HwDecrypt(term, &flag)
+		err := HwDecrypt(term, &flag)
 		if err != nil {
 			term.Error(err)
 		}

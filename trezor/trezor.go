@@ -13,7 +13,7 @@ import (
 	"github.com/golang/protobuf/proto"
 	"github.com/holiman/uint256"
 	"github.com/jaanek/jethwallet/accounts"
-	"github.com/jaanek/jethwallet/hwwallet"
+	"github.com/jaanek/jethwallet/hwwallet/hwcommon"
 	"github.com/jaanek/jethwallet/trezor/trezorproto"
 	"github.com/jaanek/jethwallet/ui"
 	"github.com/karalabe/usb"
@@ -52,7 +52,7 @@ type trezorWallet struct {
 	features *trezorproto.Features
 }
 
-func Wallets(term ui.Screen) ([]hwwallet.HWWallet, error) {
+func Wallets(term ui.Screen) ([]hwcommon.HWWallet, error) {
 	var infos []usb.DeviceInfo
 	allInfos, err := usb.Enumerate(vendorID, 0)
 	if err != nil {
@@ -67,7 +67,7 @@ func Wallets(term ui.Screen) ([]hwwallet.HWWallet, error) {
 			}
 		}
 	}
-	wallets := make([]hwwallet.HWWallet, 0, len(infos))
+	wallets := make([]hwcommon.HWWallet, 0, len(infos))
 	for _, info := range infos {
 		device, err := info.Open()
 		if err != nil {

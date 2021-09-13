@@ -1,18 +1,16 @@
-package commands
+package keystore
 
 import (
 	"errors"
 
-	"github.com/jaanek/jethwallet/flags"
-	"github.com/jaanek/jethwallet/keystore"
 	"github.com/jaanek/jethwallet/ui"
 )
 
-func NewAccount(term ui.Screen, flag *flags.Flags) error {
-	if flag.KeystorePath == "" {
+func NewAccount(term ui.Screen, keystorePath string) error {
+	if keystorePath == "" {
 		return errors.New("Only supports creating new accounts in keystore!")
 	}
-	ks := keystore.NewKeyStore(term, flag.KeystorePath)
+	ks := NewKeyStore(term, keystorePath)
 	term.Print("*** Enter passphrase (not echoed)...")
 	passphrase, err := term.ReadPassword()
 	if err != nil {

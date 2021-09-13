@@ -1,19 +1,18 @@
-package commands
+package keystore
 
 import (
 	"errors"
 	"fmt"
 
-	"github.com/jaanek/jethwallet/keystore"
 	"github.com/jaanek/jethwallet/ui"
 	"github.com/ledgerwatch/erigon/crypto"
 )
 
 func ImportKey(term ui.Screen, keystorePath string) error {
 	if keystorePath == "" {
-		return errors.New("Only supports importing keys to keystore!")
+		return errors.New("keystore path required")
 	}
-	ks := keystore.NewKeyStore(term, keystorePath)
+	ks := NewKeyStore(term, keystorePath)
 	term.Print("*** Enter private key as 64 hexadecimal digits (not echoed): ")
 	keyBytes, err := term.ReadPassword()
 	if err != nil {
