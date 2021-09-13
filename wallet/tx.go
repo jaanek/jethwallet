@@ -1,6 +1,7 @@
 package wallet
 
 import (
+	"bytes"
 	"errors"
 
 	"github.com/holiman/uint256"
@@ -59,4 +60,13 @@ func NewTransaction(chainID uint256.Int, nonce uint64, to *common.Address, value
 		return nil, errors.New("Either --gas-price or (--gas-tip and --gas-price) must be specified")
 	}
 	return rawTx, nil
+}
+
+func EncodeTx(signed types.Transaction) ([]byte, error) {
+	var encoded bytes.Buffer
+	err := signed.MarshalBinary(&encoded)
+	if err != nil {
+		return nil, err
+	}
+	return encoded.Bytes()[:], nil
 }

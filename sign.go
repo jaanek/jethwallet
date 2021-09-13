@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -114,18 +113,14 @@ func SignTx(term ui.Screen, flag *flags.Flags) error {
 	}
 
 	// output
-	var encoded bytes.Buffer
-	err = signed.MarshalBinary(&encoded)
-	if err != nil {
-		return err
-	}
-	encodedRawTx := hexutil.Encode(encoded.Bytes()[:])
+	encoded, err := wallet.EncodeTx(signed)
+	encodedHex := hexutil.Encode(encoded)
 	v, r, s := signed.RawSignatureValues()
 	txSig := fmt.Sprintf("0x%064x%064x%02x", r, s, v)
 	out := Output{
 		RpcUrl:         flag.FlagRpcUrl,
 		ChainId:        flag.FlagChainID,
-		RawTransaction: encodedRawTx,
+		RawTransaction: encodedHex,
 		TransactionSig: txSig,
 	}
 	outb, err := json.Marshal(&out)
