@@ -21,6 +21,7 @@ type KeystoreTxSigner interface {
 	GetSignedRawTx(chainID uint256.Int, nonce uint64, from common.Address, to *common.Address, value *uint256.Int, input []byte, gasLimit uint64, gasPrice, gasTip, gasFeeCap *uint256.Int) ([]byte, error)
 	AskPasswordFor(addr common.Address) error
 	SetPasswordFor(addr common.Address, pass string) error
+	ForceLegaxyTx()
 }
 
 type signer struct {
