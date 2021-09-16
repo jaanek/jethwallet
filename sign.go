@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/holiman/uint256"
 	"github.com/jaanek/jethwallet/flags"
@@ -12,6 +13,7 @@ import (
 	"github.com/jaanek/jethwallet/keystore"
 	"github.com/jaanek/jethwallet/ui"
 	"github.com/jaanek/jethwallet/wallet"
+	"github.com/ledgerwatch/erigon/accounts/abi"
 	"github.com/ledgerwatch/erigon/common"
 	"github.com/ledgerwatch/erigon/common/hexutil"
 	"github.com/ledgerwatch/erigon/common/math"
@@ -52,6 +54,9 @@ func SignTx(term ui.Screen, flag *flags.Flags) error {
 			return errors.New(fmt.Sprintf("gas price not uint64: %v", flag.FlagGasPrice))
 		}
 		gasPrice = new(uint256.Int).SetUint64(gp)
+		if flag.FlagGasPriceGwei {
+			gasPrice = new(uint256.Int).Mul(gasPrice, new(uint256.Int).SetUint64(params.GWei))
+		}
 	}
 	if flag.FlagGasTip != "" {
 		gt, ok := math.ParseUint64(flag.FlagGasTip)
@@ -59,6 +64,9 @@ func SignTx(term ui.Screen, flag *flags.Flags) error {
 			return errors.New(fmt.Sprintf("gas tip not uint64: %v", flag.FlagGasTip))
 		}
 		gasTipCap = new(uint256.Int).SetUint64(gt)
+		if flag.FlagGasTipGwei {
+			gasTipCap = new(uint256.Int).Mul(gasTipCap, new(uint256.Int).SetUint64(params.GWei))
+		}
 	}
 	if flag.FlagGasFeeCap != "" {
 		gfc, ok := math.ParseUint64(flag.FlagGasFeeCap)
@@ -66,6 +74,9 @@ func SignTx(term ui.Screen, flag *flags.Flags) error {
 			return errors.New(fmt.Sprintf("gas tip fee cap not uint64: %v", flag.FlagGasFeeCap))
 		}
 		gasFeeCap = new(uint256.Int).SetUint64(gfc)
+		if flag.FlagGasFeeCapGwei {
+			gasFeeCap = new(uint256.Int).Mul(gasFeeCap, new(uint256.Int).SetUint64(params.GWei))
+		}
 	}
 	if gasPrice == nil && (gasTipCap == nil || gasFeeCap == nil) {
 		return errors.New("Either --gas-price or (--gas-tip and --gas-maxfee) must be provided")
@@ -95,15 +106,59 @@ func SignTx(term ui.Screen, flag *flags.Flags) error {
 	if to == nil && flag.FlagInput == "" {
 		return errors.New("Either --to or --input must be provided")
 	}
+	var methodName string
+	var unpackedInput = []interface{}{}
 	var input = []byte{}
 	if flag.FlagInput != "" {
 		input = hexutil.MustDecode(flag.FlagInput)
+		if flag.FlagInputMethod != "" {
+			split := strings.Split(flag.FlagInputMethod, ":")
+			if len(split) == 2 {
+				methodName = split[0]
+				typeNames := split[1]
+				argTypes, err := AbiTypesFromStrings(strings.Split(typeNames, ","))
+				if err == nil {
+					unpackedInput, err = argTypes.Unpack(input[4:])
+					if err != nil {
+						term.Errorf("Error while unpacking %v. Err: %v, input: %x\n", typeNames, err, input[4:])
+					}
+				} else {
+					term.Errorf("Error while parsing %v into typed args.", typeNames)
+				}
+			}
+		}
 	}
 
 	// Create the transaction to sign
 	tx, err := wallet.NewTx(*chainID, nonce, to, value, input, gasLimit, gasPrice, gasTipCap, gasFeeCap)
 	if err != nil {
 		return err
+	}
+
+	if flag.Plain {
+		term.Print("**************************")
+		term.Print("*** Transaction params ***")
+		term.Print("**************************")
+		valueInGwei := new(uint256.Int).Div(value, new(uint256.Int).SetUint64(params.GWei))
+		term.Print(fmt.Sprintf("rpcUrl: %s", flag.FlagRpcUrl))
+		term.Print(fmt.Sprintf("chainId: %v", chainID))
+		term.Print(fmt.Sprintf("nonce: %v", nonce))
+		term.Print(fmt.Sprintf("from: %s", fromAddr))
+		term.Print(fmt.Sprintf("to: %s", to))
+		term.Print(fmt.Sprintf("value: %s wei (%s gwei) (%.9f eth/ftm)", value, valueInGwei, float64(valueInGwei.Uint64())/1e9))
+		term.Print(fmt.Sprintf("data: %x", input))
+		term.Print(fmt.Sprintf("method: %s, args:: %+v", methodName, unpackedInput))
+		term.Print(fmt.Sprintf("gas: %v", gasLimit))
+		if gasTipCap != nil {
+			gasTipInGwei := new(uint256.Int).Div(gasTipCap, new(uint256.Int).SetUint64(params.GWei))
+			term.Print(fmt.Sprintf("gasTip: %s wei (%s gwei)", gasTipCap, gasTipInGwei))
+		}
+		if gasPrice != nil {
+			gasPriceInGwei := new(uint256.Int).Div(gasPrice, new(uint256.Int).SetUint64(params.GWei))
+			term.Print(fmt.Sprintf("gasPrice: %s wei (%s gwei)", gasPrice, gasPriceInGwei))
+		}
+		term.Print("*** Press ENTER to continue! ***")
+		term.ReadPassword()
 	}
 
 	// sign tx
@@ -135,4 +190,22 @@ func SignTx(term ui.Screen, flag *flags.Flags) error {
 	}
 	term.Output(fmt.Sprintf("%s\n", string(outb)))
 	return nil
+}
+
+func AbiTypesFromStrings(typeNames []string) (abi.Arguments, error) {
+	var argTypes = make([]abi.Argument, 0, len(typeNames))
+	for _, argTypeName := range typeNames {
+		if len(argTypeName) == 0 {
+			continue
+		}
+		argType, err := abi.NewType(argTypeName, "", nil) // example: "uint256"
+		if err != nil {
+			return nil, fmt.Errorf("argument contains invalid type: %s. Error: %w", argTypeName, err)
+		}
+		arg := abi.Argument{
+			Type: argType,
+		}
+		argTypes = append(argTypes, arg)
+	}
+	return argTypes, nil
 }

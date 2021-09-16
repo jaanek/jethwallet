@@ -26,6 +26,7 @@ type StdInput struct {
 	To             string `json:"to"`
 	Value          string `json:"value"`
 	Data           string `json:"data"`
+	Method         string `json:"method"`
 	GasTip         string `json:"gasTip"`
 	GasPrice       string `json:"gasPrice"`
 	Gas            string `json:"gas"`
@@ -56,16 +57,21 @@ func init() {
 	signCmd.Flags().StringVar(&flag.FlagNonce, "nonce", "", "")
 	signCmd.Flags().StringVar(&flag.FlagFrom, "from", "", "an account to send from")
 	signCmd.Flags().StringVar(&flag.FlagTo, "to", "", "send to or if not provided then input required with contract data")
-	signCmd.Flags().StringVar(&flag.FlagGasLimit, "gas-limit", "", "in wei")
-	signCmd.Flags().StringVar(&flag.FlagGasPrice, "gas-price", "", "for legacy tx")
-	signCmd.Flags().StringVar(&flag.FlagGasTip, "gas-tip", "", "for dynamic tx")
-	signCmd.Flags().StringVar(&flag.FlagGasFeeCap, "gas-maxfee", "", "for dynamic tx")
+	signCmd.Flags().StringVar(&flag.FlagGasLimit, "gaslimit", "", "in wei")
+	signCmd.Flags().StringVar(&flag.FlagGasPrice, "gasprice", "", "for legacy tx")
+	signCmd.Flags().StringVar(&flag.FlagGasTip, "gastip", "", "for dynamic tx")
+	signCmd.Flags().StringVar(&flag.FlagGasFeeCap, "gasfeecap", "", "for dynamic tx")
 	signCmd.Flags().StringVar(&flag.FlagValue, "value", "", "in wei")
+	signCmd.Flags().BoolVar(&flag.FlagGasPriceGwei, "gasprice-gwei", false, "indicate that provided --gasprice is in gwei and not in wei")
+	signCmd.Flags().BoolVar(&flag.FlagGasTipGwei, "gastip-gwei", false, "indicate that provided --gastip is in gwei and not in wei")
+	signCmd.Flags().BoolVar(&flag.FlagGasFeeCapGwei, "gasfeecap-gwei", false, "indicate that provided --gasfeecap is in gwei and not in wei")
 	signCmd.Flags().BoolVar(&flag.FlagValueGwei, "value-gwei", false, "indicate that provided --value is in gwei and not in wei")
 	signCmd.Flags().BoolVar(&flag.FlagValueEth, "value-eth", false, "indicate that provided --value is in eth and not in wei")
 	signCmd.Flags().StringVar(&flag.FlagChainID, "chain-id", "", "1: mainnet, 5: goerli, 250: Fantom, 137: Matic/Polygon")
 	signCmd.Flags().StringVar(&flag.FlagInput, "input", "", "A hexadecimal input data for tx")
+	signCmd.Flags().StringVar(&flag.FlagInputMethod, "input-argtypes", "", "Input argument types like: address,string etc.")
 	signCmd.Flags().BoolVar(&flag.FlagSig, "sig", false, "output only signature parts(r,s,v) in hex")
+	signCmd.Flags().BoolVar(&flag.Plain, "plain", false, "print tx params and ask confirmation")
 
 	// sign msg flags
 	signMsgCmd.Flags().StringVar(&flag.FlagFrom, "from", "", "an account to use to sign")
@@ -224,7 +230,7 @@ func main() {
 	// try to read command params from from std input json stream
 	if isReadFromStdInArgSpecified(os.Args) {
 		stdInStr := StdInReadAll()
-		fmt.Fprintf(os.Stderr, "******************** Read stdin: %v\n", stdInStr)
+		// fmt.Fprintf(os.Stderr, "******************** Read stdin: %v\n", stdInStr)
 		if len(stdInStr) > 0 {
 			input := StdInput{}
 			err := json.Unmarshal([]byte(stdInStr), &input)
@@ -243,6 +249,7 @@ func main() {
 				flag.FlagGasFeeCap = input.GasPrice
 				flag.FlagValue = input.Value
 				flag.FlagInput = input.Data
+				flag.FlagInputMethod = input.Method
 			}
 		}
 	}
