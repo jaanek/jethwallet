@@ -47,25 +47,25 @@ func SignTx(term ui.Screen, flag *flags.Flags) error {
 	gasLimit := math.MustParseUint64(flag.FlagGasLimit)
 	var gasPrice, gasTipCap, gasFeeCap *uint256.Int
 	if flag.FlagGasPrice != "" {
-		var err error
-		gasPrice, err = uint256.FromHex(flag.FlagGasPrice)
-		if err != nil {
-			return err
+		gp, ok := math.ParseUint64(flag.FlagGasPrice)
+		if !ok {
+			return errors.New(fmt.Sprintf("gas price not uint64: %v", flag.FlagGasPrice))
 		}
+		gasPrice = new(uint256.Int).SetUint64(gp)
 	}
 	if flag.FlagGasTip != "" {
-		var err error
-		gasTipCap, err = uint256.FromHex(flag.FlagGasTip)
-		if err != nil {
-			return err
+		gt, ok := math.ParseUint64(flag.FlagGasTip)
+		if !ok {
+			return errors.New(fmt.Sprintf("gas tip not uint64: %v", flag.FlagGasTip))
 		}
+		gasTipCap = new(uint256.Int).SetUint64(gt)
 	}
 	if flag.FlagGasFeeCap != "" {
-		var err error
-		gasFeeCap, err = uint256.FromHex(flag.FlagGasFeeCap)
-		if err != nil {
-			return err
+		gfc, ok := math.ParseUint64(flag.FlagGasFeeCap)
+		if !ok {
+			return errors.New(fmt.Sprintf("gas tip fee cap not uint64: %v", flag.FlagGasFeeCap))
 		}
+		gasFeeCap = new(uint256.Int).SetUint64(gfc)
 	}
 	if gasPrice == nil && (gasTipCap == nil || gasFeeCap == nil) {
 		return errors.New("Either --gas-price or (--gas-tip and --gas-maxfee) must be provided")
@@ -102,6 +102,9 @@ func SignTx(term ui.Screen, flag *flags.Flags) error {
 
 	// Create the transaction to sign
 	tx, err := wallet.NewTx(*chainID, nonce, to, value, input, gasLimit, gasPrice, gasTipCap, gasFeeCap)
+	if err != nil {
+		return err
+	}
 
 	// sign tx
 	var signed types.Transaction
@@ -110,6 +113,9 @@ func SignTx(term ui.Screen, flag *flags.Flags) error {
 	} else {
 		hwWalletType := hwcommon.GetWalletTypeFromFlags(flag)
 		signed, err = hwwallet.SignTx(term, hwWalletType, fromAddr, tx, flag.Max)
+	}
+	if err != nil {
+		return err
 	}
 
 	// output

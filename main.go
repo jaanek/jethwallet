@@ -224,11 +224,13 @@ func main() {
 	// try to read command params from from std input json stream
 	if isReadFromStdInArgSpecified(os.Args) {
 		stdInStr := StdInReadAll()
+		fmt.Fprintf(os.Stderr, "******************** Read stdin: %v\n", stdInStr)
 		if len(stdInStr) > 0 {
 			input := StdInput{}
 			err := json.Unmarshal([]byte(stdInStr), &input)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error while parsing stdin json: %s\n", err)
+				return
 			} else {
 				flag.FlagChainID = input.ChainId
 				flag.FlagRpcUrl = input.RpcUrl
