@@ -277,7 +277,7 @@ func (w *trezorWallet) sendTx(req proto.Message, tx types.Transaction, chainID *
 	}
 	// Extract the Ethereum signature and do a sanity validation
 	if len(response.GetSignatureR()) == 0 || len(response.GetSignatureS()) == 0 || response.GetSignatureV() == 0 {
-		return common.Address{}, nil, errors.New("reply lacks signature")
+		return common.Address{}, nil, errors.New("trezor: reply lacks signature")
 	}
 	signature := append(append(response.GetSignatureR(), response.GetSignatureS()...), byte(response.GetSignatureV()))
 
