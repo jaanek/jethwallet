@@ -264,7 +264,7 @@ func (w *trezorWallet) SignTx(path accounts.DerivationPath, tx types.Transaction
 func (w *trezorWallet) sendTx(req proto.Message, tx types.Transaction, chainID *uint256.Int, data []byte) (common.Address, types.Transaction, error) {
 	response := new(trezorproto.EthereumTxRequest)
 	if err := w.Call(req, response); err != nil {
-		return common.Address{}, nil, err
+		return common.Address{}, nil, fmt.Errorf("trezor call: %w", err)
 	}
 	for response.DataLength != nil && int(*response.DataLength) <= len(data) {
 		var chunk []byte
@@ -272,19 +272,20 @@ func (w *trezorWallet) sendTx(req proto.Message, tx types.Transaction, chainID *
 		chunk, data = data[:dataLen], data[dataLen:]
 
 		if err := w.Call(&trezorproto.EthereumTxAck{DataChunk: chunk}, response); err != nil {
-			return common.Address{}, nil, err
+			return common.Address{}, nil, fmt.Errorf("trezor call (loop): %w", err)
 		}
 	}
 	// Extract the Ethereum signature and do a sanity validation
-	if len(response.GetSignatureR()) == 0 || len(response.GetSignatureS()) == 0 || response.GetSignatureV() == 0 {
+	if len(response.GetSignatureR()) == 0 || len(response.GetSignatureS()) == 0 {
 		return common.Address{}, nil, errors.New("trezor: reply lacks signature")
 	}
 	signature := append(append(response.GetSignatureR(), response.GetSignatureS()...), byte(response.GetSignatureV()))
 
 	// Create the correct signer and signature transform based on the chain ID
-	// signer := types.NewLondonSigner(&chainID)
 	signer := types.LatestSignerForChainID(chainID.ToBig())
-	signature[64] -= byte(chainID.Uint64()*2 + 35)
+	if tx.Type() == types.LegacyTxType {
+		signature[64] -= byte(chainID.Uint64()*2 + 35)
+	}
 
 	// Inject the final signature into the transaction and sanity check the sender
 	signed, err := tx.WithSignature(*signer, signature)
@@ -336,7 +337,7 @@ func (w *trezorWallet) Call(req proto.Message, result proto.Message) error {
 				for _, d := range pinStr {
 					if !strings.ContainsRune("123456789", d) || len(pin) < 1 {
 						kind, reply, _ = w.rawCall(&trezorproto.Cancel{})
-						return errors.New("Invalid PIN provided")
+						return errors.New("trezor: Invalid PIN provided")
 					}
 				}
 				// send pin
