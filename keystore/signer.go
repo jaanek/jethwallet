@@ -9,7 +9,7 @@ import (
 	"github.com/ledgerwatch/erigon/common"
 )
 
-func NewTxSigner(term ui.Screen, keystorePath string) KeystoreTxSigner {
+func NewTxSigner(term ui.Screen, keystorePath string) TxSigner {
 	return &signer{
 		term:         term,
 		keystorePath: keystorePath,
@@ -17,7 +17,7 @@ func NewTxSigner(term ui.Screen, keystorePath string) KeystoreTxSigner {
 	}
 }
 
-type KeystoreTxSigner interface {
+type TxSigner interface {
 	GetSignedRawTx(chainID uint256.Int, nonce uint64, from common.Address, to *common.Address, value *uint256.Int, input []byte, gasLimit uint64, gasPrice, gasTip, gasFeeCap *uint256.Int) ([]byte, error)
 	AskPasswordFor(addr common.Address) error
 	SetPasswordFor(addr common.Address, pass string) error
